@@ -17,7 +17,7 @@
  *   Harmonic arrays only have nharm positive components, and include DC
  */
 
-/* Periodic spectrum, with axes phase, pol, chan */
+/* Periodic spectrum, with axes phase, pol, chan					*/
 struct periodic_spectrum {
     int nphase;
     int npol;
@@ -31,7 +31,7 @@ struct periodic_spectrum {
     float *data;
 };
 
-/* Cyclic spectrum */
+/* Cyclic spectrum													*/
 struct cyclic_spectrum {
     int nharm;
     int npol;
@@ -45,7 +45,7 @@ struct cyclic_spectrum {
     fftwf_complex *data;
 };
 
-/* Cyclic correlation */
+/* Cyclic correlation												*/
 struct cyclic_correlation {
     int nharm;
     int npol;
@@ -59,7 +59,7 @@ struct cyclic_correlation {
     fftwf_complex *data;
 };
 
-/* Periodic correlation */
+/* Periodic correlation												*/
 struct periodic_correlation {
     int nphase;
     int npol;
@@ -73,7 +73,7 @@ struct periodic_correlation {
     fftwf_complex *data;
 };
 
-/* Filter functions in time/freq domain */
+/* Filter functions in time/freq domain								*/
 struct filter_time {
     int nlag;
     fftwf_complex *data;
@@ -83,7 +83,7 @@ struct filter_freq {
     fftwf_complex *data;
 };
 
-/* Pulse profiles in phase/harmonic domain */
+/* Pulse profiles in phase/harmonic domain							*/
 struct profile_phase {
     int nphase;
     float *data;
@@ -93,7 +93,7 @@ struct profile_harm {
     fftwf_complex *data;
 };
 
-/* Struct to hold working info (fftw plans, etc) */
+/* Struct to hold working info (fftw plans, etc)					*/
 struct cyclic_work {
 
     int npol;
@@ -104,7 +104,7 @@ struct cyclic_work {
     int nphase;
     int nharm;
 
-    /* Add to these as needed */
+    /* Add to these as needed										*/
     fftwf_plan ps2cs;
     fftwf_plan cs2cc;
     fftwf_plan cc2cs;
@@ -115,7 +115,7 @@ struct cyclic_work {
     fftwf_plan harm2phase;
 };
 
-/* Help save lots of characters... */
+/* Help save lots of characters...									*/
 typedef struct periodic_spectrum PS;
 typedef struct cyclic_spectrum CS;
 typedef struct cyclic_correlation CC;
@@ -135,7 +135,7 @@ static inline fftwf_complex *get_pc(PC *d, int iphase, int ipol, int ilag) {
     return &d->data[iphase + d->nphase*ipol + d->nphase*d->npol*ilag];
 }
 
-/* Alloc/free datatypes */
+/* Alloc/free datatypes												*/
 void cyclic_alloc_ps(PS *d);
 void cyclic_alloc_cs(CS *d);
 void cyclic_alloc_cc(CC *d);
@@ -153,15 +153,15 @@ void profile_alloc_harm(struct profile_harm *p);
 void profile_free_phase(struct profile_phase *p);
 void profile_free_harm(struct profile_harm *p);
 
-/* Load dimension params from datafile */
-/* MAW modified to include *nspec */
+/* Load dimension params from datafile								*/
+/* MAW modified to include *nspec									*/
 int cyclic_load_params(fitsfile *f, struct cyclic_work *w,
 					   int *nspec, int *status);
 
-/* Load one periodic spectrum from datafile */
+/* Load one periodic spectrum from datafile							*/
 int cyclic_load_ps(fitsfile *f, PS *d, int idx, int *status);
 
-/* Init fft plans for datatype conversion */
+/* Init fft plans for datatype conversion							*/
 int cyclic_init_ffts(struct cyclic_work *w);
 void cyclic_free_ffts(struct cyclic_work *w);
 
@@ -170,7 +170,7 @@ void cyclic_free_ffts(struct cyclic_work *w);
 /* MAW 7/7/11 : fixed polarisation interleave problem				*/
 int cyclic_pscrunch_ps(PS *d, float xgain, float ygain);
 
-/* Sum over freq in periodic spectrum */
+/* Sum over freq in periodic spectrum								*/
 int cyclic_fscrunch_ps(struct profile_phase *out, PS *in);
 
 /* Added by MAW 17/7/2011											*/
@@ -178,7 +178,7 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in);
 /* and puts the result into the output harmonic profile				*/
 int cyclic_fscrunch_cs(struct profile_harm *out, const CS *in);
 	
-/* Conversion routines */
+/* Conversion routines												*/
 void cyclic_ps2cs(PS *in, CS *out, const struct cyclic_work *w);
 void cyclic_cs2cc(CS *in, CC *out, const struct cyclic_work *w);
 void cyclic_cc2cs(CC *in, CS *out, const struct cyclic_work *w);
@@ -195,7 +195,7 @@ void profile_harm2phase(struct profile_harm *in,
 						struct profile_phase *out,
 						const struct cyclic_work *w);
 
-/* Added by MAW 16/7/2011. Modelled on PMD's cyclic_shift_cs		*/
+/* Added by MAW 16/7/2011. Modelled on PBD's cyclic_shift_cs		*/
 int cyclic_shear_cs(CS *d, double shear, const struct cyclic_work *w);
 	
 /* Mean square difference functions for the various structs			*/
@@ -204,7 +204,7 @@ double profile_ms_difference(struct profile_harm *p1,
 double filter_ms_difference(struct filter_time *f1,
 							struct filter_time *f2);
 
-/* MAW 14/7/2011. Modified version of PMD's	cyclic_ms_difference	*/
+/* MAW 14/7/2011. Modified version of PBD's	cyclic_ms_difference	*/
 double cyclic_square_difference(const CS *cs1, const CS *cs2);
 
 /* Output simple text-based versions of various quantities			*/
@@ -223,7 +223,7 @@ void read_profile(const char *fname, struct profile_phase *pp);
 int	maximum_cs1(const CS *cs);
 
 /* Finds the root-mean-square of the cyclic spectrum at harmonic	*/
-/* number = iharm. Added by MAW 14/07/2011											*/
+/* number = iharm. Added by MAW 14/07/2011							*/
 float rms_cs(const CS *cs, const int iharm);
 
 /* Copies parameters from cs1 struct into cs2 struct				*/
@@ -256,43 +256,105 @@ int	profile2cs(CS *cs1, const struct profile_harm *s0);
 	
 /* Rotates the phase of H(freq) so that H(rc) is purely real		*/
 /* Added by MAW 14/07/2011											*/
-int rotate_filter_phase(struct filter_freq *hf, const int rc);
+int rotate_phase_filter_freq(struct filter_freq *hf, const int rc);
+
+/* Rotates the phase of h(lag) so that h(rl) is purely real		*/
+/* Added by MAW 24/08/2011											*/
+int rotate_phase_filter_time(struct filter_time *ht, const int rl);
 
 /* Puts the 2*nchan-1 parameters x into the nchan complex numbers	*/
 /* making up hf, with cimag(hf(rchan))=0							*/
 /* Added by MAW 14/07/2011											*/
-int parms2struct(const double *x, struct filter_freq *hf, 
-				 const int rchan);
+int parms2struct_freq(const double *x, struct filter_freq *hf, 
+					  const int rchan);
 
 /* Takes the 2*nchan-1 parameters x from the nchan complex			*/
 /* numbers making up hf. Omits Im(hf(rchan)) which is zero			*/
 /* Added by MAW 14/07/2011											*/
-int struct2parms(const struct filter_freq *hf, double *x, 
-				 const int rchan);
+int struct2parms_freq(const struct filter_freq *hf, double *x, 
+					  const int rchan);
 
+/* Puts the 2*nlag-1 parameters x into the nlag complex numbers		*/
+/* making up ht, with cimag(ht(rlag))=0								*/
+/* Added by MAW 24/08/2011											*/
+int parms2struct_time(const double *x, struct filter_time *ht, 
+					  const int rlag);
+
+/* Takes the 2*nlag-1 parameters x from the nlag complex			*/
+/* numbers making up ht. Omits Im(ht(rlag)) which is zero			*/
+/* Added by MAW 24/08/2011											*/
+int struct2parms_time(const struct filter_time *ht, double *x, 
+					  const int rlag);
 
 /* Returns the min and max channel numbers giving a valid CS		*/
 /* estimate at harmonic # iharm										*/
 int	chan_limits_cs(int *chan_min, int *chan_max, const int iharm, 
 				   const CS *cs);
 
-/* Determine the maximum abs(harmonic no.) to which the CS is valid	*/
-int	harm_limit_cs(const int ic, const CS *cs);
-
-/* Returns the maximum (absolute value of the) harmonic number		*/
-/* giving a valid sheared CS estimate. Use this limit for case		*/
-/* where the shear is < 0											*/
-int	harm_limit_cs_shear_minus(const int ichan, const CS *cs);
-
-/* Returns the maximum (absolute value of the) harmonic number		*/
-/* giving a valid sheared CS estimate. Use this limit for case		*/
-/* where the shear is > 0											*/
-int	harm_limit_cs_shear_plus(const int ichan, const CS *cs);
-
-/* Normalises the reference pulse profile harmonics so that			*/
-/* the implied filter amplitudes are rms(|H(freq)|) ~ 1				*/
+/* Normalises the reference pulse profile harmonics:|s0(1)| = 1		*/
 /* Function added by MAW 22/07/2011									*/
-int normalise_profile(struct profile_harm *s0, const CS *cs);
+int normalise_profile(struct profile_harm *s0);
 
+/* Function added by MAW 24/11/2011									*/
+/* Normalises the cyclic spectrum :	rms(|cs(1,freq)|) = 1			*/
+int normalise_cs_old(CS *cs);
 
+/* Function added by MAW 05/03/2012									*/
+/* Normalises the cyclic spectrum so as to give unit rms signal		*/
+/* power at modulation frequency = pulsar rotation frequency		*/
+int normalise_cs(CS *cs);
+
+/* Routine added by MAW 25/08/2011									*/
+/* Returns lag_max: |ht(lag_max)| is maximum						*/
+int	maximum_filter_time(const struct filter_time *ht);
+	
+/* Routine added by MAW 17/11/2011									*/
+/* For each harmonic number, fills the unsampled region of the CS,	*/
+/* at low and high channel numbers, with zeros.						*/
+int cyclic_padding(CS *d);
+
+/* Routine added by MAW 19/11/2011.									*/
+/* Estimates the mean filter phase gradient, given an input			*/
+/* cyclic spectrum and reference pulse profile harmonics.			*/
+/* The estimated phase gradient is then converted to a delay		*/
+/* and returned as an integer value, corresponding to the			*/
+/* non-zero element in the lag-space filter representation			*/
+int phase_gradient(const CS *d, const struct profile_harm *s0);
+
+/* Routine added by MAW 23/11/2011									*/
+/* Divides H(freq) by nchan.										*/
+/* Used by filter_time2freq so that it is the inverse				*/
+/* operation of filter_freq2time									*/
+int filter_freq_renorm(struct filter_freq *hf);
+	
+/* Routine added by MAW 23/11/2011									*/
+/* Divides ph(iharm) by nharm.										*/
+/* Used by profile_phase2harm so that it is the inverse				*/
+/* operation of profile_harm2phase									*/
+int profile_harm_renorm(struct profile_harm *ph);
+	
+/* Routine added by MAW 23/11/2011									*/
+/* Divides cs by nchan. Used by cyclic_cc2cs so that it is the		*/
+/* inverse operation of cyclic_cs2cc								*/
+int cyclic_cc2cs_renorm(CS *cs);
+		
+/* Routine added by MAW 23/11/2011									*/
+/* Divides cs by nharm. Used by cyclic_ps2cs so that it is the		*/
+/* inverse operation of cyclic_cs2ps (not yet implemented!)			*/
+int cyclic_ps2cs_renorm(CS *cs);
+
+/* Routine added by MAW 30/11/2011									*/
+/* Determines the phasor z such that z * H2(freq) is the best match	*/
+/* to the filter H1(freq), and modifies H2 accordingly				*/
+int match_two_filters(const struct filter_freq *hf1,
+					  struct filter_freq *hf2);
+	
+/* Routine added by MAW 16/01/2012									*/
+/* Estimates the variance of the cyclic spectrum, using the			*/
+/* highest available harmonic of the pulse (modulation) freq.		*/
+/* Also computes the number of valid points contributing to			*/
+/* the estimate of the merit function.								*/
+/* Routine assumes that the noise is white.							*/
+int cyclic_variance(float *variance, float *vpoints, const CS *d);
+	
 #endif

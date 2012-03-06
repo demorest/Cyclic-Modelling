@@ -1,16 +1,22 @@
 /* filter_profile.c													*/
 /*																	*/
 /* Original code by P. Demorest, December 2010						*/
-/* Substantially modified by M. Walker July 2011					*/
+/* Modified by M. Walker July 2011 - March 2012						*/
 /*																	*/
-/* Determine filter functions and profiles by least-squares fitting	*/
-/* using the NLOPT optimization library.							*/
+/* Given a measured periodic spectrum, and a reference intrinsic	*/
+/* pulse profile, this code uses the NLOPT optimization library to	*/
+/* determine the best fit (in a least-squares sense) impulse		*/
+/* response function. And for this IRF, the intrinsic pulse			*/
+/* profile implied by the measured periodic spectrum is also		*/
+/* determined.														*/
 /*																	*/
-/* Filter functions are optimised, with respect to a reference		*/
-/* pulse profile, using NLOPT. Then a new profile function is		*/
-/* generated directly by applying the filter functions to the data	*/
+/* Filter optimisation is available in lag-space (default),			*/
+/* or in frequency-space (-f option)								*/
 /*																	*/
-/* Filter optimisation only available in lag space at present		*/
+/* If no reference pulse profile is given, the code will determine	*/
+/* a pulse profile from the data, assuming that the IRF	is a		*/
+/* delta-function at lag=0.											*/
+/*																	*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +34,7 @@
 
 #include "cyclic_utils.h"
 #include "model_cyclic.h"
+#include "merit_functions.h"
 
 #define fits_error_check_fatal() do { \
     if (status) { \
@@ -36,129 +43,35 @@
     } \
 } while (0)
 
-void usage() {printf("filter_extraction [Options] filename\n");
+void usage() {printf("filter_profile [Options] filename\n");
     printf("Options:\n");
-    printf("  -i initialise (no optimisation)\n");
+    printf("  -f frequency-space optimisation\n");
+    printf("     (default is lag-space optimisation)\n");
+	printf("  -i initialise (no filter optimisation)\n");
     printf("  -v verbose\n");
     printf("  -R fname  Use the Reference pulse profile in fname\n");
     printf("Must invoke with -i or -R options\n");
 }
 
-/* Functions for timing												*/
-double cur_time_in_sec() {
-    struct timeval tv;
-    int rv=0;
-    if ((rv=gettimeofday(&tv,NULL))!=0) { return(0); }
-    return (tv.tv_sec+tv.tv_usec*1e-6);
-}
-
-/* Struct for passing the data and other information to nlopt		*/
-struct cyclic_data {
-    struct cyclic_spectrum *cs;	/* The data	themselves				*/
-    struct profile_harm *s0;	/* Reference profile harmonics		*/
-    struct cyclic_work *w;		/* FFTW plans, etc					*/
-	int		*rc;				/* Freq channel : cimag(H(rc))=0	*/
-};
-
 /* Integers which can be accessed by various functions				*/
 int verbose = 0;
 int sample_ncalls = 0;
 
-/* Return the sum of square differences between current model and	*/
-/* data, using the functional form that nlopt wants.				*/
-/* Compute the gradient of the sum-of-squares if needed.			*/
-/* Vector "x" contains the parameter values H(freq).				*/
-double cyclic_merit_nlopt(unsigned n, const double *x, 
-        double *grad, void *_data) {
-
-	extern int verbose;
-	extern int sample_ncalls;
-    static int ncalls=0;
-    static double tot_time = 0.0;
-    double t0 = cur_time_in_sec();
-    ncalls++;
-	sample_ncalls++;
-	
-    /* Pointer to input data										*/
-    struct cyclic_data *data = (struct cyclic_data *)_data;
-
-    /* check dimensions												*/
-	if (n != 2*(data->w->nchan)-1) {
-        fprintf(stderr, 
-		"cyclic_merit_nlopt: error, inconsistent sizes!\n");
-        exit(1);
-    }
-	
-	/* Put the parameters x into the struct hf, for ease of use		*/
-	int rchan = *(data->rc);
-	struct filter_freq hf;
-	hf.nchan = data->w->nchan;
-    filter_alloc_freq(&hf);
-	parms2struct(x, &hf, rchan);
-		
-    /* Compute the model cyclic spectrum from hf and s0				*/
-	struct cyclic_spectrum cs_model;
-	cs_copy_parms(data->cs, &cs_model);
-	cyclic_alloc_cs(&cs_model);
-	
-	int imod = make_model_cs(&cs_model, &hf, data->s0, data->w);
-	
-    if (imod != 0) { fprintf(stderr, 
-		"cyclic_merit_nlopt: error in make_model_cs (%d)\n",imod);
-        exit(1);
-    }	
-	
-    /* Evaluate and return the sum of |data-model|^2				*/
-    double merit = cyclic_square_difference(data->cs, &cs_model);
-	
-		
-	/* Evaluate the gradient, if needed								*/
-    if (grad != NULL) {		
-		struct filter_freq complex_gradient;
-		complex_gradient.nchan=data->w->nchan;
-		filter_alloc_freq(&complex_gradient);
-		
-		int mg;
-		mg = merit_gradient(&complex_gradient, data->cs, &hf,
-							data->s0, data->w);
-				
-		if (mg != 0) { fprintf(stderr, 
-			"cyclic_merit_nlopt: error in merit_gradient (%d)\n",imod);
-			exit(1);
-		}
-		
-		/* Assign NLOPT-grad values from the complex_gradient		*/
-		struct2parms(&complex_gradient, grad, rchan);
-					
-		filter_free_freq(&complex_gradient);
-    }	
-	
-    /* Print timing info											*/
-    double t1 = cur_time_in_sec();
-    tot_time += t1-t0;
-	if (verbose) {
-		printf("Total ncalls=%d, avg %.2e sec/call, m = %.7e\n", 
-			   ncalls, tot_time/(double)ncalls, merit);				
-	}	
-	
-	cyclic_free_cs(&cs_model);
-    filter_free_freq(&hf);
-
-    return(merit);
-}
 
 /* Catch sigint														*/
 int run=1;
 void cc(int sig) { run=0; }
 
 int main(int argc, char *argv[]) {
-
-    int isub = 1, opt=0, opcheck=0, do_optimisation=0;
+    int isub = 1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"ivR:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:"))!=-1) {
         switch (opt) {
+            case 'f':
+				lagspace--;
+                break;
             case 'i':
 				opcheck++;
                 break;
@@ -173,17 +86,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (optind==argc) {
-        usage();
-        exit(1);
-    }
-    if (opcheck!=1) {
-        usage();
-        exit(1);
-    }
+    if (optind==argc || opcheck!=1) { usage(); exit(1); }
 	
-	int ic, ih, j, is;
-    int rv, status, nspec=1;
+	int ic, ih, j, is, rv, status, nspec=1;
 	
     /* Open fits datafile											*/
     fitsfile *f;
@@ -208,7 +113,7 @@ int main(int argc, char *argv[]) {
     fftwf_init_threads();
     fftwf_plan_with_nthreads(2);
     if (verbose) { printf("Planning FFTs\n"); fflush(stdout); }
-#define WF "/Users/mwalker/Software/C/cyclic_wisdom.dat"
+#define WF "cyclic_wisdom.dat"
     FILE *wf = fopen(WF,"r");
     if (wf!=NULL) { fftwf_import_wisdom_from_file(wf); fclose(wf); }
     rv = cyclic_init_ffts(&w);
@@ -219,28 +124,33 @@ int main(int argc, char *argv[]) {
     wf = fopen(WF,"w");
     if (wf!=NULL) { fftwf_export_wisdom_to_file(wf); fclose(wf); }
 
+	
     /* Allocate some stuff											*/
     struct periodic_spectrum raw;
     struct cyclic_spectrum cs;
-    struct filter_freq hf;
+    struct filter_freq hf, hf_prev;
+	struct filter_time ht;
     struct profile_phase pp, pp_ref, pp_int;
     struct profile_harm  ph, ph_ref;
 
     raw.nphase = pp.nphase = pp_ref.nphase = pp_int.nphase = w.nphase;
-    raw.nchan = cs.nchan = hf.nchan = w.nchan;
+    raw.nchan = cs.nchan = hf.nchan = hf_prev.nchan = w.nchan;
     cs.nharm = ph.nharm = ph_ref.nharm = w.nharm;
+	ht.nlag = w.nlag;
     raw.npol = orig_npol;
     cs.npol = 1;
 
     cyclic_alloc_ps(&raw);
     cyclic_alloc_cs(&cs);
     filter_alloc_freq(&hf);
+    filter_alloc_freq(&hf_prev);
+	filter_alloc_time(&ht);
     profile_alloc_phase(&pp);
     profile_alloc_phase(&pp_ref);
     profile_alloc_phase(&pp_int);
     profile_alloc_harm(&ph);
     profile_alloc_harm(&ph_ref);
-	
+
 	/* Initialise arrays for dynamic spectrum and optimised filters	*/
 	float dynamic_spectrum[nspec][w.nchan];
 	fftwf_complex optimised_filters[nspec][w.nchan];
@@ -262,8 +172,11 @@ int main(int argc, char *argv[]) {
 	}
 	
 	/* Initialise the intrinsic pulse profile to zero				*/
-	for (j=0; j<pp_int.nphase; j++) { 
-		pp_int.data[j] = 0.0;
+	for (j=0; j<pp_int.nphase; j++) { pp_int.data[j] = 0.0; }
+		
+	/* Initialise the "previous" filter coefficients to unity		*/
+	for (ic=0; ic<hf_prev.nchan; ic++) {
+		hf_prev.data[ic] = 1.0 + I * 0.0;
 	}
 	
 	if (do_optimisation) {
@@ -271,16 +184,18 @@ int main(int argc, char *argv[]) {
 		read_profile(ref_prof, &pp_ref);
 		/* Convert reference profile to harmonics					*/
 		profile_phase2harm(&pp_ref, &ph_ref, &w);
+		/* Normalise : |ph_ref(1)| = 1.								*/
+		normalise_profile(&ph_ref);
 		/* Ensure the zero-frequency term is zero					*/
 		ph_ref.data[0] = 0.0 + I * 0.0;
 	}
-	
+
 	
 	/* Loop over all subintegrations								*/
 	int noptimised=0;
 	isub = 1;
-	while (isub < nspec - 1) {
-		
+	while (isub < nspec + 1) {
+	
 		if (verbose) {
 			printf("Subintegration %d of %d\n", isub, nspec);
 		}
@@ -297,80 +212,144 @@ int main(int argc, char *argv[]) {
 		/* Convert input data to cyclic spectrum					*/
 		cyclic_ps2cs(&raw, &cs, &w);
 		
+		/* Normalise the data to give unit rms signal power in the	*/
+		/* cyclic spectrum at modulation frequency = pulsar			*/
+		/* rotation frequency										*/
+		normalise_cs(&cs);
+		
+		/* Replace the invalid (unsampled) end channels of the 		*/
+		/* cyclic spectrum with zeros.								*/
+		cyclic_padding(&cs);
+		
 		/* The zero modulation-frequency component of the cyclic	*/
 		/* spectrum gives us the dynamic spectrum -> output			*/
-		int ic;
 		for (ic=0; ic<w.nchan; ic++) {
 			fftwf_complex *d1 = get_cs(&cs, 0, 0, ic);
 			dynamic_spectrum[isub-1][ic]  = creal(*d1);
 		}
 		
-		/* Initialise H(freq) to unity if this is the first sample	*/
-		if (!noptimised) for (ic=0; ic<hf.nchan; ic++) {
-			hf.data[ic] = 1.0 + I * 0.0;
+		/* If we're initialising (opt = -i) then set H(freq)=1		*/
+		int delay=0;
+		if (!do_optimisation) {
+			for (ic=0; ic<hf.nchan; ic++) {
+				hf.data[ic] = 1.0 + I * 0.0;
+			}
 		}
-				
-		/* Find ic : |cs(ic,1)| is largest							*/
-		int rchan = maximum_cs1(&cs);
+		else if (!noptimised) {
+		/* Otherwise if this is the first sample then we estimate	*/
+		/* the phase gradient in H(freq) and set h(lag)	to be a		*/
+		/* delta-function centred on the corresponding lag			*/
+			delay = phase_gradient(&cs, &ph_ref);
+			printf("Initial filter: delta-function at delay = %d\n",
+				   delay);
+			for (ic=0; ic<ht.nlag; ic++) {
+				ht.data[ic] = 0.0 + I * 0.0;
+			}
+			ht.data[delay] = (float)ht.nlag + I * 0.0;
+			/* Convert model filter to frequency-space				*/
+			filter_time2freq(&ht, &hf, &w);						
+		}
+		
+		/* Convert current filter to lag-space						*/
+		filter_freq2time(&hf, &ht, &w);
+		
+		int rindex = 0;
+		/* Find the index for which the filter is maximised			*/
+		if (lagspace) { rindex = maximum_filter_time(&ht); }
+		else          { rindex = maximum_cs1(&cs); }
+		
 		if (verbose) {
-			printf("Real channel = %d\n",rchan);
+			printf("Real-valued filter coefficient at index = %d\n",
+				   rindex);  
+			fflush(stdout);
 		}
-		/* Rotate the phase of H so that H(rchan) is real			*/
-		rotate_filter_phase(&hf, rchan);
 
 		if (do_optimisation) {
-			
-			/* Normalise the reference profile : |H(freq)| ~ 1	*/
-			normalise_profile(&ph_ref, &cs);
+			/* Rotate filter phases so that rindex is real-valued	*/
+			if (lagspace) { rotate_phase_filter_time(&ht, rindex); }
+			else {          rotate_phase_filter_freq(&hf, rindex); }
 
-			if (!noptimised) {
-				/* Build an approximate H(freq) by iteration		*/
-				construct_filter_freq(&hf, &ph_ref, &cs, &w);
-			}
 			/* Enforce ph_ref as the reference profile				*/
-			for (ih=0; ih<w.nharm; ih++) {
+			for (ih=0; ih<ph.nharm; ih++) {
 				ph.data[ih] = ph_ref.data[ih];
 			}
+
 			/* Fill in data struct for NLOPT						*/
 			struct cyclic_data cdata;
-			cdata.cs = &cs;
-			cdata.s0 = &ph;
-			cdata.w	 = &w;
-			cdata.rc = &rchan;
+			cdata.cs     = &cs;
+			cdata.s0     = &ph;
+			cdata.w	     = &w;
+			cdata.rindex = &rindex;
 
 			sample_ncalls = 0;
+			
 			/* Set up NLOPT minimizer								*/
-			const int dim = 2*w.nchan-1; /* no. of free parameters	*/
+			int dim0;				/* no. of free parameters		*/
+			if (lagspace) { dim0 = 2*w.nlag-1; }
+			else          { dim0 = 2*w.nchan-1;}
+			
+			const int dim = dim0;
+			nlopt_opt op;
+			op = nlopt_create(NLOPT_LD_LBFGS, dim);
+			
+			/* Other NLopt algorithms which use gradients			*/
+			/* You shouldn't normally be using these as they		*/
+			/* don't perform as well as LBFGS						*/
+			/* op = nlopt_create(NLOPT_LD_VAR1, dim);				*/
+			/* op = nlopt_create(NLOPT_LD_VAR2, dim);				*/
+			/* op = nlopt_create(NLOPT_LD_MMA, dim);				*/
+			/*op=nlopt_create(NLOPT_LD_TNEWTON_PRECOND_RESTART,dim);*/
+			/* op = nlopt_create(NLOPT_LD_SLSQP, dim);				*/
+						
+			if (lagspace) {
+				nlopt_set_min_objective(op, cyclic_merit_nlopt_lag,
+										&cdata);
+				if (verbose) {printf("Lag-space  optimisation\n");}		
+			}
+			else {
+				nlopt_set_min_objective(op, cyclic_merit_nlopt_freq,
+										&cdata);
+				if (verbose) {printf("Freq-space optimisation\n");}				
+			}
+
+			
 			if (verbose) {
 				printf("Number of fit parameters = %d\n", dim);
 			}
-			nlopt_opt op;
-			op = nlopt_create(NLOPT_LD_LBFGS, dim);
-			nlopt_set_min_objective(op, cyclic_merit_nlopt, &cdata);
 			
-			/* Assert the stopping criteria							*/
-			double tolerance = 1.e-6;
+			float cs_var = 0., merit_samples = 0., dof = 0.;
+			/* Determine the noise level in the data				*/
+			cyclic_variance(&cs_var, &merit_samples, &cs);
+			dof = merit_samples - (float)dim0 - (float)w.nphase;
+			
+			if (verbose) {
+				printf("Variance of data         = %.5e\n",cs_var);
+				printf("Number of samples        = %.5e\n",
+					   merit_samples);
+				printf("Degrees of Freedom       = %.5e\n",dof);
+				printf("Expected Minimum Demerit = %.5e\n",
+					   dof * cs_var);
+			}
+			
+						
+			/* Assert the stopping criterion						*/
+			double tolerance = 1.e-1 / (double)dof;
 			/* Fractional tolerance on the merit function			*/
 			nlopt_set_ftol_rel(op, tolerance);
 			if (verbose) {
-				printf("NLOPT: set FTOL-rel = %.5e\n",tolerance);
-			}
-			tolerance = 1.e-3;
-			/* Fractional tolerance on the parameter values			*/
-			nlopt_set_xtol_rel(op, tolerance);
-			if (verbose) {
-			 printf("NLOPT: set XTOL-rel = %.5e\n",tolerance);
+				printf("NLOPT: set FTOL-rel      = %.5e\n",tolerance);
 			}
 			
-			
-			/* Set initial values of parameters	to current H(freq)	*/
+			/* Set initial values of parameters	to current filter	*/
 			double *x = (double *)malloc(sizeof(double) * dim);			
 			
 			if (x==NULL) {
 				fprintf(stderr, "malloc(x) : insufficient space\n");
 				exit(1);
 			}
-			struct2parms(&hf, x, rchan);			
+			
+			if (lagspace) struct2parms_time(&ht, x, rindex);
+			else          struct2parms_freq(&hf, x, rindex);			
 			
 			/* Run NLOPT optimization								*/
 			double min;
@@ -379,14 +358,23 @@ int main(int argc, char *argv[]) {
 			callno[isub-1]  = sample_ncalls;
 
 			/* Construct H(freq) from the optimum values of "x"		*/
-			parms2struct(x, &hf, rchan);
+			if (lagspace) {
+				parms2struct_time(x, &ht, rindex);
+				filter_time2freq(&ht, &hf, &w);
+			}
+			else parms2struct_freq(x, &hf, rindex);
 						
 			/* Free-up allocations									*/
 			free(x);
 			nlopt_destroy(op);
 		}
 		
-		/* Put current optimised filter(freq) into array			*/
+		/* Rotate the phases of the current filter so that they		*/
+		/* match the previous time-step as closely as possible		*/
+		/* And normalise the r.m.s. amplitude to unity				*/
+		match_two_filters(&hf_prev, &hf);
+		
+		/* Put current optimised filter(freq) into output array		*/
 		for (ic=0; ic<hf.nchan; ic++) {
 			optimised_filters[isub-1][ic]=hf.data[ic];
 		}
@@ -403,13 +391,22 @@ int main(int argc, char *argv[]) {
         ph.data[0] = 0.0 + I * 0.0;
         profile_harm2phase(&ph, &pp, &w);
 				
-		/* Add profile for current subint to the intrinsic estimate */
+		
+		if (outcome[isub-1]<0 && verbose) {printf("NLOPT failed\n");}
+			
+		/* Add profile for subint to the intrinsic estimate			*/
 		for (j=0; j<pp_int.nphase; j++) { 
 			pp_int.data[j] += pp.data[j];
 		}
-					
+		/* Update the "previous" filter, used to determine the		*/
+		/* complex scaling applied to the next optimised filter		*/
+		for (j=0; j<hf.nchan; j++) { 
+			hf_prev.data[j] = hf.data[j];
+		}
+			
 		isub++;
 		noptimised++;
+
 	}
 
 	char *inputptr = argv[optind];
@@ -460,7 +457,7 @@ int main(int argc, char *argv[]) {
 	fpointer = fopen(outputptr, "w");
 	fprintf(fpointer, "%d\n", nspec);
 	for (is=0; is<nspec; is++) {
-		fprintf(fpointer, "%d %d %d %.7e\n", is+1, outcome[is],
+		fprintf(fpointer, "%d %d %d %.9e\n", is+1, outcome[is],
 				callno[is], minima[is]);
 	}
     fprintf(fpointer,"\n\n");
@@ -470,6 +467,8 @@ int main(int argc, char *argv[]) {
     cyclic_free_ps(&raw);
 	cyclic_free_cs(&cs);
     filter_free_freq(&hf);
+    filter_free_freq(&hf_prev);
+    filter_free_time(&ht);
     profile_free_phase(&pp);
     profile_free_harm(&ph);
     profile_free_phase(&pp_ref);

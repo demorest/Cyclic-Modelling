@@ -205,7 +205,7 @@ void cyclic_free_ffts(struct cyclic_work *w) {
 
 int cyclic_pscrunch_ps(PS *d, float xgain, float ygain) {
 	
-	/* MAW 7/7/2011	Modified version of PMD's code which fixes the	*/
+	/* MAW 7/7/2011	Modified version of PBD's code which fixes the	*/
 	/* polarisation interleave problem								*/
 	
     if (d->npol<2) { return(-1); }
@@ -246,50 +246,75 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in) {
 }
 
 void cyclic_ps2cs(PS *in, CS *out, const struct cyclic_work *w) {
+	
     fftwf_execute_dft_r2c(w->ps2cs, in->data, out->data);
+	
     out->imjd = in->imjd;
     out->fmjd = in->fmjd;
     out->ref_phase = in->ref_phase;
     out->ref_freq = in->ref_freq;
     out->rf = in->rf;
     out->bw = in->bw;
+	
+	cyclic_ps2cs_renorm(out);
+	
 }
 void cyclic_cs2cc(CS *in, CC *out, const struct cyclic_work *w) {
+	
     fftwf_execute_dft(w->cs2cc, in->data, out->data);
+	
     out->imjd = in->imjd;
     out->fmjd = in->fmjd;
     out->ref_phase = in->ref_phase;
     out->ref_freq = in->ref_freq;
     out->rf = in->rf;
     out->bw = in->bw;
+	
 }
 void cyclic_cc2cs(CC *in, CS *out, const struct cyclic_work *w) {
+	
     fftwf_execute_dft(w->cc2cs, in->data, out->data);
+	
     out->imjd = in->imjd;
     out->fmjd = in->fmjd;
     out->ref_phase = in->ref_phase;
     out->ref_freq = in->ref_freq;
     out->rf = in->rf;
     out->bw = in->bw;
+	
+	cyclic_cc2cs_renorm(out);
+	
 }
 
 void filter_time2freq(struct filter_time *in, struct filter_freq *out, 
         const struct cyclic_work *w) {
+	
     fftwf_execute_dft(w->time2freq, in->data, out->data);
+	filter_freq_renorm(out);
+							
 }
+
 void filter_freq2time(struct filter_freq *in, struct filter_time *out, 
         const struct cyclic_work *w) {
+	
     fftwf_execute_dft(w->freq2time, in->data, out->data);
+	
 }
+
 void profile_phase2harm(struct profile_phase *in,
 						struct profile_harm *out, 
 						const struct cyclic_work *w) {
+	
     fftwf_execute_dft_r2c(w->phase2harm, in->data, out->data);
+	profile_harm_renorm(out);
 }
+
 void profile_harm2phase(struct profile_harm *in,
 						struct profile_phase *out, 
 						const struct cyclic_work *w) {
+	
     fftwf_execute_dft_c2r(w->harm2phase, in->data, out->data);
+	
 }
 
 
@@ -418,7 +443,6 @@ int	maximum_cs1(const CS *cs) {
 	/* Routine added by MAW 13/07/2011								*/
 	/* Returns the channel having the largest absolute value		*/
 	/* of the cyclic spectrum at ih=1								*/
-	/* Search is conducted in the central 80% of the band			*/
 	
 	int ic, ic_max=0, chan_min, chan_max, ih=1;
 	chan_limits_cs(&chan_min, &chan_max, ih, cs);
@@ -607,7 +631,7 @@ int	profile2cs(CS *cs1, const struct profile_harm *s0) {
 }
 
 
-int rotate_filter_phase(struct filter_freq *hf, const int rc) {
+int rotate_phase_filter_freq(struct filter_freq *hf, const int rc) {
 	/* Routine added by MAW 14/07/2011								*/
 	/* Rotates the phase of H(freq) so that H(rc) is real			*/
 	
@@ -622,9 +646,24 @@ int rotate_filter_phase(struct filter_freq *hf, const int rc) {
 	return(0);
 }
 
+int rotate_phase_filter_time(struct filter_time *ht, const int rl) {
+	/* Routine added by MAW 24/08/2011								*/
+	/* Rotates the phase of h(lag) so that h(rl) is real			*/
+	
+	fftwf_complex phasor = conj(ht->data[rl]);
+	float norm = creal(phasor * conj(phasor));
+	phasor /= sqrt(norm);
+	int ic;
+	for (ic=0; ic<ht->nlag; ic++) {
+		ht->data[ic] *= phasor;
+	}
+	
+	return(0);
+}
 
-int parms2struct(const double *x, struct filter_freq *hf, 
-				 const int rchan) {
+
+int parms2struct_freq(const double *x, struct filter_freq *hf, 
+					  const int rchan) {
 	/* Puts the 2*nchan-1 parameters x into the nchan complex		*/
 	/* numbers making up hf, with the channel rchan having zero		*/
 	/* imaginary component											*/
@@ -646,8 +685,8 @@ int parms2struct(const double *x, struct filter_freq *hf,
 	return(0);
 }
 
-int struct2parms(const struct filter_freq *hf, double *x, 
-				 const int rchan) {
+int struct2parms_freq(const struct filter_freq *hf, double *x, 
+					  const int rchan) {
 	/* Takes the 2*nchan-1 parameters x from the nchan complex		*/
 	/* numbers making up hf, with the channel rchan having zero		*/
 	/* imaginary component											*/
@@ -660,7 +699,7 @@ int struct2parms(const struct filter_freq *hf, double *x,
 		xtmp[1] = (double)cimag(hf->data[ic]);
 		xtmp += 2;
 	}
-	xtmp[0] = (double)creal(hf->data[ic]);
+	xtmp[0] = (double)creal(hf->data[rchan]);
 	xtmp += 1;
 	for (ic=rchan+1;ic<hf->nchan; ic++) {
 		xtmp[0] = (double)creal(hf->data[ic]);
@@ -672,10 +711,59 @@ int struct2parms(const struct filter_freq *hf, double *x,
 }
 
 
+int parms2struct_time(const double *x, struct filter_time *ht, 
+					  const int rlag) {
+	/* Puts the 2*nlag-1 parameters x into the nlag complex			*/
+	/* numbers making up ht, with ht(rlag) having zero				*/
+	/* imaginary component											*/
+	/* Added by MAW 24/08/2011										*/
+	
+    int ic;
+	const double *xtmp = x;
+	for (ic=0; ic<rlag; ic++) {
+		ht->data[ic] = xtmp[0] + I*xtmp[1];
+		xtmp += 2;
+	}
+	ht->data[rlag] = xtmp[0] + I * 0.0;
+	xtmp += 1;
+	for (ic=rlag+1;ic<ht->nlag; ic++) {
+		ht->data[ic] = xtmp[0] + I*xtmp[1];
+		xtmp += 2;
+	}
+	
+	return(0);
+}
+
+int struct2parms_time(const struct filter_time *ht, double *x, 
+					  const int rlag) {
+	/* Takes the 2*nlag-1 parameters x from the nlag complex		*/
+	/* numbers making up ht, with ht(rlag) having zero				*/
+	/* imaginary component											*/
+	/* Added by MAW 24/08/2011										*/
+	
+    int ic;
+	double *xtmp = x;
+	for (ic=0; ic<rlag; ic++) {
+		xtmp[0] = (double)creal(ht->data[ic]);
+		xtmp[1] = (double)cimag(ht->data[ic]);
+		xtmp += 2;
+	}
+	xtmp[0] = (double)creal(ht->data[rlag]);
+	xtmp += 1;
+	for (ic=rlag+1;ic<ht->nlag; ic++) {
+		xtmp[0] = (double)creal(ht->data[ic]);
+		xtmp[1] = (double)cimag(ht->data[ic]);
+		xtmp += 2;
+	}
+	
+	return(0);
+}
+
+
 int cyclic_shear_cs(CS *d, double shear,
 					const struct cyclic_work *w) {
 	
-	/* Added by MAW 16/7/2011. Modelled on PMD's cyclic_shift_cs	*/
+	/* Added by MAW 16/7/2011. Modelled on PBD's cyclic_shift_cs	*/
 	/* This version replaces the (integer) parameter "sign" with	*/
 	/* the (double) parameter "shear", which is the amount by which	*/
 	/* the cs should be sheared, in units of alpha. Thus we have	*/
@@ -696,7 +784,7 @@ int cyclic_shear_cs(CS *d, double shear,
 	
     const double dtau   = 1.0/(d->bw*1e6);/* lag step, in seconds	*/
     const double dalpha = d->ref_freq;    /* harmonic step in Hz	*/
-	
+		
     /* Move to cc domain											*/
     cyclic_cs2cc(d, &tmp_cc, w);
 	
@@ -707,7 +795,7 @@ int cyclic_shear_cs(CS *d, double shear,
             int lag = (ilag<=tmp_cc.nlag/2) ? ilag : ilag-tmp_cc.nlag;
             double phs = shear * (-2.0*M_PI) *(dalpha*(double)iharm) * 
 						(dtau*(double)lag);
-            fftwf_complex fac = (cos(phs)+I*sin(phs))/(float)w->nchan;
+            fftwf_complex fac = (cos(phs)+I*sin(phs));
             for (ipol=0; ipol<tmp_cc.npol; ipol++) {
                 fftwf_complex *dat = get_cc(&tmp_cc,iharm,ipol,ilag);
                 *dat *= fac;
@@ -718,7 +806,7 @@ int cyclic_shear_cs(CS *d, double shear,
     /* Back to cs domain											*/
     cyclic_cc2cs(&tmp_cc, d, w);
 	
-	/* Free the storage ad return									*/
+	/* Free the storage and return									*/
     cyclic_free_cc(&tmp_cc);
     return(0);
 }
@@ -755,138 +843,353 @@ int	chan_limits_cs(int *chan_min, int *chan_max, const int iharm,
 	/* Returns the min and max channel numbers giving a valid CS	*/
 	/* estimate at harmonic # iharm									*/
 	/* Usage of these limits is as follows							*/
-	/* for (ichan=chan_min; ichan<chan_max; ichan++)				*/
+	/* for (ichan=chan_min; ichan<chan_max; ichan++) data are valid	*/
 	
 	if (iharm<0 || iharm>=cs->nharm) {
 		printf("Error : chan_limits_cs : iharm out of range\n");
 		exit(1);
 	}
+		
+		
+	double inv_aspect = cs->ref_freq * (double)cs->nchan ;
+	inv_aspect *= (double)iharm / (cs->bw*1.e6);
+	inv_aspect -= 1.0;
+	inv_aspect /= 2.0;
+	int ichan = (int)inv_aspect + 1;
 	
-	/* TO DO : PMD to assert correct formulation					*/
-	
-	double inv_aspect = (cs->ref_freq * (double)cs->nchan) 
-										/ (cs->bw*1.e6);
-	inv_aspect *= ((double)iharm) / 2.0;
-	int ichan = (int)inv_aspect;
-	if (ichan>cs->nchan/2) {
-		ichan = cs->nchan / 2;
-	}
+	if (ichan>cs->nchan/2) { ichan = cs->nchan / 2; }
+
 	*chan_min = ichan;
-	ichan	  = cs->nchan - (int)inv_aspect;
-	if (ichan<cs->nchan/2) {
-		ichan = cs->nchan / 2;
-	}
-	*chan_max = ichan;
+	*chan_max = cs->nchan - ichan;
 	
 	return(0);
 	
 }
 
-int	harm_limit_cs(const int ichan, const CS *cs) {
-	
-	/* Function added by MAW 12/7/2011								*/
-	/* Returns the maximum (absolute value of the) harmonic number	*/
-	/* giving a valid cyclic spectrum estimate at channel ichan		*/
-	
-	/* Usage of this limit is as follows							*/
-	/* ihlimit = harm_limit_cs(ichan, cs);							*/
-	/* for (ih=0;ih<ihlimit;ih++) ...								*/
-	
-	if (ichan<0 || ichan>=cs->nchan) {
-		printf("Error : harm_limit_cs : ichan out of range\n");
-		exit(1);
-	}
-	
-	/* TO DO : PMD to assert correct formulation					*/
-	
-	int iharm = cs->nchan - abs(2*ichan-cs->nchan);
-	double aspect = (cs->bw*1.e6)/(cs->ref_freq * 
-								   (double)(cs->nchan));
-	aspect *= (double)iharm;
-	iharm = (int)aspect;
-	if (iharm>cs->nharm) { iharm=cs->nharm; }
-	
-	return(iharm);
-	
-}
-
-int	harm_limit_cs_shear_minus(const int ichan, const CS *cs) {
-					 	
-	/* Function added by MAW 17/7/2011. Returns the maximum			*/
-	/* (absolute value of the) harmonic number giving a valid		*/
-	/* estimate for a sheared CS in the case shear = -0.5			*/
-	
-	/* Usage of this limit is as follows							*/
-	/* ihlimit = harm_limit_cs_shear_minus(ichan, cs);				*/
-	/* for (ih=0;ih<ihlimit;ih++) ...								*/
-
-	/* TO DO : PMD to assert correct formulation					*/
-
-	if (ichan<0 || ichan>=cs->nchan) {
-	printf("Error : harm_limit_cs_shear_minus : ichan out of range\n");
-	exit(1);
-	}
-	
-	int iharm = ichan;
-	double aspect = (cs->bw*1.e6)/(cs->ref_freq * (double)(cs->nchan));
-	aspect *= (double)iharm;
-	iharm = (int)aspect;
-	if (iharm>cs->nharm) { iharm=cs->nharm; }
-	
-	return(iharm);
-	
-}
-
-int	harm_limit_cs_shear_plus(const int ichan, const CS *cs) {
-	
-	/* Function added by MAW 17/7/2011. Returns the maximum			*/
-	/* (absolute value of the) harmonic number giving a valid		*/
-	/* estimate for a sheared CS in the case shear = +0.5			*/
-	
-	/* Usage of this limit is as follows							*/
-	/* ihlimit = harm_limit_cs_shear_plus(ichan, cs);				*/
-	/* for (ih=0;ih<ihlimit;ih++) ...								*/
-	
-	/* TO DO : PMD to assert correct formulation					*/
-
-	if (ichan<0 || ichan>=cs->nchan) {
-	printf("Error : harm_limit_cs_shear_plus : ichan out of range\n");
-	exit(1);
-	}
-	
-	int iharm = cs->nchan - ichan - 1;
-	double aspect = (cs->bw*1.e6)/(cs->ref_freq * (double)(cs->nchan));
-	aspect *= (double)iharm;
-	iharm = (int)aspect;
-	if (iharm>cs->nharm) { iharm=cs->nharm; }
-	
-	return(iharm);
-	
-}
-
-int normalise_profile(struct profile_harm *s0, const CS *cs) {
+int normalise_profile(struct profile_harm *s0) {
 	
 	/* Function added by MAW 22/07/2011								*/
-	/* Normalises the reference pulse profile harmonics so that		*/
-	/* the implied filter amplitudes are rms(|H(freq)|) ~ 1			*/
-	/* Calculation based on ih = 1 and ih = 2 data					*/
+	/* Normalises the reference pulse profile harmonics:|s0(1)| = 1 */
 
-	/* Estimate the normalisation factor on the basis of ih = 1		*/
-	float normfac = rms_cs(cs,1) / sqrt(creal(s0->data[1] * 
-						   conj(s0->data[1])));
-	/* And average that with the estimate based on ih = 2			*/
-	normfac += rms_cs(cs,2) / sqrt(creal(s0->data[2] * 
-						   conj(s0->data[2])));
-	normfac /= 2.0;
+	int ih = 1;
+	float normfac = 1./sqrt(creal(s0->data[ih] * conj(s0->data[ih])));
 	
-	int ih;
-	for (ih=1; ih<s0->nharm; ih++) {
-		s0->data[ih] *= normfac;
-	}
+	for (ih=0; ih<s0->nharm; ih++) { s0->data[ih] *= normfac; }
 		
 	return(0);
 }
 
+int normalise_cs(CS *cs) {
+	
+	/* Function added by MAW 05/03/2012								*/
+	/* Normalises the cyclic spectrum so that the rms signal power	*/
+	/* at ih = 1 is unity											*/
+	
+	int ic, ip, ih = 1;
+	float rms1 = rms_cs(cs,ih); 
+	ih = cs->nharm-1;
+	float rmsn = rms_cs(cs,ih); 
+	float normfac = 1./sqrt(fabs(rms1*rms1 - rmsn*rmsn));; 
+	
+	for (ih=0; ih<cs->nharm; ih++) {
+		for (ip=0; ip<cs->npol; ip++) {
+			for (ic=0; ic<cs->nchan; ic++) {
+				fftwf_complex *cs1 = get_cs(cs, ih, ip, ic);
+				*cs1 *= normfac;
+			}
+		}
+	}
+	
+	return(0);
+}
+
+
+int normalise_cs_old(CS *cs) {
+	
+	/* Function added by MAW 24/11/2011								*/
+	/* Normalises the cyclic spectrum :	rms(|cs(1,freq)|) = 1		*/
+	
+	int ic, ip, ih = 1;
+	float normfac = 1./rms_cs(cs,ih); 
+	
+	for (ih=0; ih<cs->nharm; ih++) {
+		for (ip=0; ip<cs->npol; ip++) {
+			for (ic=0; ic<cs->nchan; ic++) {
+				fftwf_complex *cs1 = get_cs(cs, ih, ip, ic);
+				*cs1 *= normfac;
+			}
+		}
+	}
+	
+	return(0);
+}
+
+
+int	maximum_filter_time(const struct filter_time *ht) {
+	/* Routine added by MAW 25/08/2011								*/
+	/* Returns lag_max: |ht(lag_max)| is maximum					*/
+	
+	int il, lag_max=0;
+	float ht_abs_sq=0., ht_abs_sq_max=0.;
+	for (il=0; il<ht->nlag; il++) {
+		ht_abs_sq = creal( ht->data[il] * conj( ht->data[il] ) );
+		if (ht_abs_sq > ht_abs_sq_max) {
+			ht_abs_sq_max = ht_abs_sq;
+			lag_max	= il;
+		}
+	}
+	
+	return(lag_max);
+}
+
+
+int cyclic_padding(CS *d) {
+	
+	/* Added by MAW 17/11/2011.										*/
+	/* Replaces the meaningless (unsampled) channels at the ends of	*/
+	/* a cyclic spectrum with zeros.								*/
+	
+    int imin = 0;
+	int imax = d->nchan;
+	int ih, ip, ic;
+	
+	for (ih=0; ih<d->nharm; ih++) {
+		chan_limits_cs(&imin, &imax, ih, d);
+		for (ip=0; ip<d->npol; ip++) {
+			for (ic=0; ic<imin; ic++) {
+				fftwf_complex *d2 = get_cs(d, ih, ip, ic);
+				*d2 = 0. + I * 0.;
+			}
+			for (ic=imax; ic<d->nchan; ic++) {
+				fftwf_complex *d2 = get_cs(d, ih, ip, ic);
+				*d2 =  0. + I * 0.;
+			}
+		}
+	}
+	
+	
+	return(0);
+}
+
+
+int phase_gradient(const CS *d, const struct profile_harm *s0) {
+	
+	/* Added by MAW 19/11/2011.										*/
+	/* Estimates the mean filter phase gradient, given an input		*/
+	/* cyclic spectrum and reference pulse profile harmonics.		*/
+	/* The estimated phase gradient is then converted to a delay	*/
+	/* and returned as an integer value, corresponding to the		*/
+	/* non-zero element in the lag-space filter representation		*/
+	
+    int imin = 0, imax = d->nchan;
+	int ih=1, ip=0, ic;
+	int delay;
+	float norm, phase_angle;
+	
+	/* Only one polarisation for now								*/
+	
+	chan_limits_cs(&imin, &imax, ih, d);
+	fftwf_complex grad_sum = 0. + I * 0.;
+	/* Sum over the cyclic spectrum values for ih = 1				*/
+	for (ic=imin; ic<imax; ic++) {
+		fftwf_complex *d2 = get_cs(d, ih, ip, ic);
+		grad_sum += *d2;
+	}
+
+	/* Divide by the pulse-profile harmonic, to give the phasor		*/
+	/* resulting from the mean phase gradient						*/
+	grad_sum /= s0->data[ih];
+	
+	/* Normalise the phasor to unity								*/
+	norm	 = sqrt((float)creal(grad_sum)*(float)creal(grad_sum) +
+					(float)cimag(grad_sum)*(float)cimag(grad_sum));
+	grad_sum /= norm;
+
+	/* Solve for the corresponding phase angle in the range			*/
+	/* -Pi < phase_angle < Pi										*/
+	if (cimag(grad_sum) >= 0.) {
+		phase_angle = acos(creal(grad_sum));
+	}
+	else {
+		phase_angle	= -1. * acos(creal(grad_sum));
+	}
+
+	/* Express the phase angle in units of the pulsar's angular		*/
+	/* rotation frequency, so that the result is a measure of delay	*/
+	phase_angle /= -2. * M_PI * d->ref_freq;
+	
+	/* Now express this in units of the lag-space resolution		*/
+	phase_angle *= 1.e6 * d->bw;
+	
+	/* And map this onto the actual lag array						*/
+	if (phase_angle > d->nchan/2 ) {
+		delay =	d->nchan/2;
+	}
+	else if (phase_angle < -(d->nchan/2) ) {
+		delay =	d->nchan/2 + 1;
+	}
+	else if (phase_angle < 0.) {
+		delay = (int)phase_angle + d->nchan - 1;
+	}
+	else {
+		delay = (int)phase_angle;
+	}
+
+
+	if (delay < 0 || delay >= d->nchan) {
+		printf("Error in phase_gradient : delay = %d\n", delay);
+	}
+	
+	return(delay);
+}
+
+
+int filter_freq_renorm(struct filter_freq *hf) {
+	/* Routine added by MAW 23/11/2011								*/
+	/* Divides H(freq) by nchan.									*/
+	/* Used by filter_time2freq so that it is the inverse			*/
+	/* operation of filter_freq2time								*/
+	
+	int ic;
+	for (ic=0; ic<hf->nchan; ic++) {
+		hf->data[ic] /= (float)hf->nchan;
+	}
+	
+	return(0);
+}
+
+int profile_harm_renorm(struct profile_harm *ph) {
+	/* Routine added by MAW 23/11/2011								*/
+	/* Divides ph(iharm) by nharm.									*/
+	/* Used by profile_phase2harm so that it is the inverse			*/
+	/* operation of profile_harm2phase								*/
+	
+	int ih;
+	for (ih=0; ih<ph->nharm; ih++) {
+		ph->data[ih] /= (float)ph->nharm;
+	}
+	
+	return(0);
+}
+
+int cyclic_cc2cs_renorm(CS *cs) {
+	
+	/* Routine added by MAW 23/11/2011								*/
+	/* Divides cs by nchan. Used by cyclic_cc2cs so that it is the	*/
+	/* inverse operation of cyclic_cs2cc							*/
+	
+	int ih, ip, ic;
+	for (ih=0; ih<cs->nharm; ih++) {
+		for (ip=0; ip<cs->npol; ip++) {
+			for (ic=0; ic<cs->nchan; ic++) {
+				fftwf_complex *d1 = get_cs(cs, ih, ip, ic);
+				*d1 /= (float)cs->nchan;
+				/* *d1 /= 1.;										*/
+			}
+		}
+	}
+	
+	return(0);
+}
+
+
+int cyclic_ps2cs_renorm(CS *cs) {
+	
+	/* Routine added by MAW 23/11/2011								*/
+	/* Divides cs by nharm. Used by cyclic_ps2cs so that it is the	*/
+	/* inverse operation of cyclic_cs2ps (not yet implemented!)		*/
+	
+	int ih, ip, ic;
+	for (ih=0; ih<cs->nharm; ih++) {
+		for (ip=0; ip<cs->npol; ip++) {
+			for (ic=0; ic<cs->nchan; ic++) {
+				fftwf_complex *d1 = get_cs(cs, ih, ip, ic);
+				*d1 /= (float)cs->nharm;
+				/* *d1 /= 1.;										*/
+			}
+		}
+	}
+	
+	return(0);
+}
+
+int match_two_filters(const struct filter_freq *hf1,
+							struct filter_freq *hf2) {
+	
+/* Routine added by MAW 30/11/2011									*/
+/* Determines the phasor z such that z * H2(freq) is the best match	*/
+/* to the filter H1(freq), and modifies H2 accordingly				*/
+/* Also normalises H2 so that the r.m.s. value is unity				*/
+	
+	if (hf1->nchan != hf2->nchan) {
+		printf("Error: match_two_filters: incompatible dimensions\n");
+		exit(1);
+	}
+	
+	
+	/* Determine the phasor which minimises the						*/
+	/* difference between H1(freq) and H2(freq)						*/
+	int ic;	
+	float znorm;
+	fftwf_complex z  = 0. + I * 0.;
+	fftwf_complex z2 = 0. + I * 0.;
+	for (ic=0; ic<hf1->nchan; ic++) {	
+		z	 += hf1->data[ic] * conj(hf2->data[ic]);
+		z2   += hf2->data[ic] * conj(hf2->data[ic]);						
+	}
+	znorm = sqrt(creal(z * conj(z)));
+	z    /= znorm;
+	znorm = sqrt((float)hf1->nchan / creal(z2));
+	z    *= znorm;
+		
+	/* Scale H2(freq) by this factor and return						*/
+	for (ic=0; ic<hf2->nchan; ic++) { hf2->data[ic] *= z; }
+	 
+	return(0);
+}
+
+
+int cyclic_variance(float *variance, float *vpoints, const CS *d) {
+	
+	/* Routine added by MAW 16/01/2012								*/
+	/* Estimates the variance of the cyclic spectrum, using the		*/
+	/* highest available harmonic of the pulse (modulation) freq.	*/
+	/* Also computes the number of valid points contributing to		*/
+	/* the estimate of the merit function.							*/
+	/* Routine assumes that the noise is white.						*/
+	
+	/* Only 1 pol for now											*/
+    if (d->npol>1) {
+		printf("cyclic_variance : npol > 1 in data\n");
+		return(-1); 
+	}
+	
+	float valid_points = 0., cyclic_var = 0.;
+	
+	/* Estimate the variance using the highest harmonic data		*/
+	int ip = 0, ih = d->nharm - 1;
+	int minchan=0, maxchan=0;
+	chan_limits_cs(&minchan, &maxchan, ih, d);
+	
+	int ic;
+	for (ic=minchan; ic<maxchan; ic++) {
+		fftwf_complex *d1 = get_cs(d, ih, ip, ic);
+		cyclic_var += (float)creal(*d1 * conj(*d1));
+		valid_points += 1.;
+	}
+	cyclic_var /= valid_points;
+	
+	for (ih=1; ih<d->nharm-1; ih++) {
+		chan_limits_cs(&minchan, &maxchan, ih, d);
+		valid_points += (float)maxchan;
+		valid_points -= (float)minchan;
+	}
+	
+	*vpoints  = 2. * valid_points;
+	*variance = cyclic_var;
+
+	return(0);
+}
 
 
 
