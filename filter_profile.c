@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
 
     if (optind==argc || opcheck!=1) { usage(); exit(1); }
 	
-	int ic, ih, j, is, rv, status, nspec=1;
+	int ic, ih, j, is, rv, status=0, nspec=1;
 	
     /* Open fits datafile											*/
     fitsfile *f;
@@ -478,3 +478,4 @@ int main(int argc, char *argv[]) {
 	
     exit(0);
 }
+
