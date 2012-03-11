@@ -90,13 +90,13 @@ int cyclic_load_ps(fitsfile *f, PS *d, int idx, int *status) {
 
     /* Load header params */
     char key[9];
-    sprintf(key, "IMJD%04d", idx);
+    sprintf(key, "IMJD%04d", idx-1);
     fits_read_key(f, TINT, key, &d->imjd, NULL, status);
-    sprintf(key, "FMJD%04d", idx);
+    sprintf(key, "FMJD%04d", idx-1);
     fits_read_key(f, TDOUBLE, key, &d->fmjd, NULL, status);
-    sprintf(key, "PHAS%04d", idx);
+    sprintf(key, "PHAS%04d", idx-1);
     fits_read_key(f, TDOUBLE, key, &d->ref_phase, NULL, status);
-    sprintf(key, "FREQ%04d", idx);
+    sprintf(key, "FREQ%04d", idx-1);
     fits_read_key(f, TDOUBLE, key, &d->ref_freq, NULL, status);
     // TODO get these in the file
     d->rf = 428.0;
