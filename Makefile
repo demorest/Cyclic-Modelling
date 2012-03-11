@@ -8,4 +8,5 @@ clean:
 install: all
 	cp -f $(PROGS1) $(LOCAL)/bin;
 
-filter_profile: filter_profile.o merit_functions.o model_cyclic.o cyclic_utils.o 
+filter_profile: filter_profile.o merit_functions.o model_cyclic.o \
+	cyclic_utils.o cyclic_fileio.o
