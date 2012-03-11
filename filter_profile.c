@@ -45,10 +45,11 @@
 
 void usage() {printf("filter_profile [Options] filename\n");
     printf("Options:\n");
+    printf("  -v verbose\n");
+    printf("  -t nthread Number of FFTW threads\n");
     printf("  -f frequency-space optimisation\n");
     printf("     (default is lag-space optimisation)\n");
 	printf("  -i initialise (no filter optimisation)\n");
-    printf("  -v verbose\n");
     printf("  -R fname  Use the Reference pulse profile in fname\n");
     printf("Must invoke with -i or -R options\n");
 }
@@ -64,10 +65,11 @@ void cc(int sig) { run=0; }
 
 int main(int argc, char *argv[]) {
     int isub = 1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
+    int fft_threads = 2;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"fivR:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:t:"))!=-1) {
         switch (opt) {
             case 'f':
 				lagspace--;
@@ -82,6 +84,9 @@ int main(int argc, char *argv[]) {
                 ref_prof = optarg;
 				do_optimisation++;
 				opcheck++;
+                break;
+            case 't':
+                fft_threads = atoi(optarg);
                 break;
         }
     }
@@ -111,7 +116,7 @@ int main(int argc, char *argv[]) {
 
     /* Initialise FFTs												*/
     fftwf_init_threads();
-    fftwf_plan_with_nthreads(2);
+    fftwf_plan_with_nthreads(fft_threads);
     if (verbose) { printf("Planning FFTs\n"); fflush(stdout); }
 #define WF "cyclic_wisdom.dat"
     FILE *wf = fopen(WF,"r");
