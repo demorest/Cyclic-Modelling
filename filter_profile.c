@@ -28,20 +28,13 @@
 #include <math.h>
 #include <complex.h>
 #include <fftw3.h>
-#include <fitsio.h>
 #include <nlopt.h>
 #include <string.h>
 
 #include "cyclic_utils.h"
+#include "cyclic_fileio.h"
 #include "model_cyclic.h"
 #include "merit_functions.h"
-
-#define fits_error_check_fatal() do { \
-    if (status) { \
-        fits_report_error(stderr, status); \
-        exit(1); \
-    } \
-} while (0)
 
 void usage() {printf("filter_profile [Options] filename\n");
     printf("Options:\n");
@@ -93,17 +86,18 @@ int main(int argc, char *argv[]) {
 
     if (optind==argc || opcheck!=1) { usage(); exit(1); }
 	
-	int ic, ih, j, is, rv, status=0, nspec=1;
+	int ic, ih, j, is, rv, nspec=1;
 	
-    /* Open fits datafile											*/
-    fitsfile *f;
-    fits_open_file(&f, argv[optind], READONLY, &status);		
-    fits_error_check_fatal();
+    /* Open generic datafile 		            					*/
+    struct cyclic_file cf;
+    cf.err_status = 0; // Needs to be initialized to 0
+    cyclic_file_open(&cf, argv[optind]);
+    cyclic_file_error_check_fatal(&cf);
 
     /* Get basic dimensions											*/
     struct cyclic_work w;
-    cyclic_load_params(f, &w, &nspec, &status);
-    fits_error_check_fatal();
+    cyclic_load_params(&cf, &w, &nspec);
+    cyclic_file_error_check_fatal(&cf);
     
 	if (verbose) {
        printf("Read nphase = %d, npol = %d, nchan = %d, nspec = %d\n", 
@@ -207,8 +201,8 @@ int main(int argc, char *argv[]) {
 		
 		/* Load data												*/
 		raw.npol = orig_npol;
-		cyclic_load_ps(f, &raw, isub, &status);
-		fits_error_check_fatal();
+		cyclic_load_ps(&cf, &raw, isub);
+		cyclic_file_error_check_fatal(&cf);
 				
 		/* Add polarisations without calibration					*/
 		cyclic_pscrunch_ps(&raw, 1.0, 1.0);

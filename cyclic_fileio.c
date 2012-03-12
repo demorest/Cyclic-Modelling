@@ -9,16 +9,32 @@
 #include <fftw3.h>
 
 #include "cyclic_utils.h"
+#include "cyclic_fileio.h"
+
+void cyclic_file_error_check_fatal(struct cyclic_file *cf) {
+    if (cf->err_status) {
+        fits_report_error(stderr, cf->err_status);
+        exit(1);
+    }
+}
+
+int cyclic_file_open(struct cyclic_file *cf, const char *fname) {
+    fitsfile *f;
+    fits_open_file(&f, fname, READONLY, &cf->err_status);
+    cf->file_ptr = (void *)f;
+    return(cf->err_status);
+}
 
 /* Load dimension params from fits file								*/
 /* MAW added *nspec parameter										*/
-int cyclic_load_params(fitsfile *f, struct cyclic_work *w,
-					   int *nspec, int *status) {
+int cyclic_load_params(struct cyclic_file *cf, struct cyclic_work *w,
+					   int *nspec) {
 
+    fitsfile *f = (fitsfile *)cf->file_ptr;
     int bitpix, naxis; 
     long naxes[4];
 
-    fits_get_img_param(f, 4, &bitpix, &naxis, naxes, status);
+    fits_get_img_param(f, 4, &bitpix, &naxis, naxes, &cf->err_status);
     if (naxis!=4) { return(-1); }
 
     w->nphase = naxes[0];
@@ -29,16 +45,18 @@ int cyclic_load_params(fitsfile *f, struct cyclic_work *w,
     w->nlag   = 0;
     w->nharm  = 0;
 
-    return(*status);
+    return(cf->err_status);
 }
 
 /* Load one periodic spectrum from datafile 
  * Space should already be allocated.
  * idx is 1-offset following cfitsio convention.
  */
-int cyclic_load_ps(fitsfile *f, PS *d, int idx, int *status) {
+int cyclic_load_ps(struct cyclic_file *cf, PS *d, int idx) {
 
     /* Load data */
+    fitsfile *f = (fitsfile *)cf->file_ptr;
+    int *status = &cf->err_status;
     long fpixel[4];
     long long nelem;
     fpixel[0] = fpixel[1] = fpixel[2] = 1;

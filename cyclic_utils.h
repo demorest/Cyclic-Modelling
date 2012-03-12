@@ -8,7 +8,6 @@
 #include <math.h>
 #include <complex.h>
 #include <fftw3.h>
-#include <fitsio.h>
 
 /* Conventions:
  *   nlag = nchan, and are arranged as
@@ -152,14 +151,6 @@ void profile_alloc_phase(struct profile_phase *p);
 void profile_alloc_harm(struct profile_harm *p);
 void profile_free_phase(struct profile_phase *p);
 void profile_free_harm(struct profile_harm *p);
-
-/* Load dimension params from datafile								*/
-/* MAW modified to include *nspec									*/
-int cyclic_load_params(fitsfile *f, struct cyclic_work *w,
-					   int *nspec, int *status);
-
-/* Load one periodic spectrum from datafile							*/
-int cyclic_load_ps(fitsfile *f, PS *d, int idx, int *status);
 
 /* Init fft plans for datatype conversion							*/
 int cyclic_init_ffts(struct cyclic_work *w);
