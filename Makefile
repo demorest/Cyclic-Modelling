@@ -1,8 +1,15 @@
 PROGS1 = filter_profile
 CC = gcc
 
+# Uncomment these to use psrchive for reading input
 PSRCHIVE_CFLAGS = $(shell psrchive --cflags)
 PSRCHIVE_LIBS = $(shell psrchive --libs)
+FILEIO_OBJ = cyclic_fileio_psrchive.o
+
+# Uncomment these to use old fits file format
+#PSRCHIVE_CFLAGS = 
+#PSRCHIVE_LIBS = 
+#FILEIO_OBJ = cyclic_fileio.o
 
 CFLAGS = -g -Wall -O3
 CXXFLAGS = $(PSRCHIVE_CFLAGS)
@@ -13,7 +20,5 @@ clean:
 install: all
 	cp -f $(PROGS1) $(LOCAL)/bin;
 
-#filter_profile: filter_profile.o merit_functions.o model_cyclic.o \
-#	cyclic_utils.o cyclic_fileio.o
 filter_profile: filter_profile.o merit_functions.o model_cyclic.o \
-	cyclic_utils.o cyclic_fileio_psrchive.o
+	cyclic_utils.o $(FILEIO_OBJ)
