@@ -5,8 +5,6 @@
 #ifndef _CYCLIC_FILIO_H
 #define _CYCLIC_FILIO_H
 
-#include <fitsio.h>
-
 #include "cyclic_utils.h"
 
 /* Structure that will allow us to abstract out the 
