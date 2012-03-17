@@ -265,47 +265,28 @@ void profile_harm2phase(struct profile_harm *in,
 
 
 double cyclic_square_difference(const CS *cs1, const CS *cs2) {
-	/* Modified by MAW 18/7/2011. Uses CS arithmetic modules		*/
 	/* Excludes ih = 0  from the summation							*/
 	/* Computation is for +ve alpha only. 							*/
 	/* Negative alpha contribution is same, so x2 at end			*/
 	
-	/* First form the difference between the two input CS			*/
-	struct cyclic_spectrum cs_diff1; 
-	cs_copy_parms(cs1, &cs_diff1);
-	cyclic_alloc_cs(&cs_diff1);
-	cs_copy_data(cs1, &cs_diff1);
-	cs_subtract(cs2, &cs_diff1);
-	
-	/* Now form the complex conjugate of that difference			*/
-	struct cyclic_spectrum cs_diff2; 
-	cs_copy_parms(&cs_diff1, &cs_diff2);
-	cyclic_alloc_cs(&cs_diff2);
-	cs_copy_data(&cs_diff1, &cs_diff2);
-	cs_conjugate(&cs_diff2);
-	
-	/* Multiply the difference by its complex conjugate				*/
-	cs_multiply(&cs_diff1, &cs_diff2);
-	
-	/* Sum along the frequency dimension (excluding invalid points)	*/
-	struct profile_harm s_tmp;
-	s_tmp.nharm = cs1->nharm;
-	profile_alloc_harm(&s_tmp);
-	cyclic_fscrunch_cs(&s_tmp, &cs_diff2);
-	
-	/* And now sum over the harmonics, omitting the fundamental		*/
+    /* Direct sum, about 2x faster than old version, maybe 
+     * more accurate also?
+     * Only handles 1-poln for now.
+     */
     double sum = 0.0;
-    int ih;
-	for (ih=1; ih<cs1->nharm; ih++) {
-		/* Factor of 2 accounts for -ve alpha						*/
-		sum += 2.0 * (double)creal(s_tmp.data[ih]);
-	}
-	
-	/* Free up memory allocations and return						*/
-	profile_free_harm(&s_tmp);
-	cyclic_free_cs(&cs_diff1);
-	cyclic_free_cs(&cs_diff2);
-	
+    int ic, ih, chan_min, chan_max;
+    for (ih=1; ih<cs1->nharm; ih++) {
+        chan_limits_cs(&chan_min, &chan_max, ih, cs1);
+        for (ic=chan_min; ic<chan_max; ic++) {
+            fftwf_complex *d1 = get_cs(cs1, ih, 0, ic);
+            fftwf_complex *d2 = get_cs(cs2, ih, 0, ic);
+            fftwf_complex diff = *d1 - *d2;
+            sum += (double)creal(diff)*(double)creal(diff)
+                + (double)cimag(diff)*(double)cimag(diff);
+        }
+    }
+    sum *= 2.0;
+
     return(sum);
 }
 
