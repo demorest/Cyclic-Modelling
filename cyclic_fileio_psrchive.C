@@ -85,7 +85,10 @@ int cyclic_load_ps(struct cyclic_file *cf, PS *d, int idx) try {
             Reference::To<Profile> prof = subint->get_Profile(ipol,ichan);
             for (unsigned ibin=0; ibin<nbin; ibin++) {
                 float *dat = get_ps(d, ibin, ipol, ichan);
-                *dat = prof->get_amps()[ibin];
+                if (prof->get_weight() == 0.0)
+                    *dat = 0.0;
+                else
+                    *dat = prof->get_amps()[ibin];
             }
         }
     }
