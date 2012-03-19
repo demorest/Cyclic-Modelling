@@ -8,7 +8,71 @@
 #include "cyclic_utils.h"
 #include "model_cyclic.h"
 
-int make_model_cs(CS *cs_model, const struct filter_freq *hf,
+/* Compute freq-domain filter and sheared CS */
+void compute_filter_data_from_time(struct filter_data *fd, 
+        const CS *cs_in, const struct cyclic_work *w) {
+
+	/* Convert ht=h(lag) to hf=H(freq)								*/
+	fd->hf.nchan = w->nchan;
+    filter_alloc_freq(&fd->hf);
+	filter_time2freq(&fd->ht, &fd->hf, w);
+
+    /* Positive shear version
+     * Note, "positive" refers to sign of the "shear" argument.
+     * It looks like this sign is opposite to the sign of alpha
+     * that the sheared version applies to.
+     */
+    cs_copy_parms(cs_in, &fd->cs_pos);
+	cyclic_alloc_cs(&fd->cs_pos);
+	filter2cs(&fd->cs_pos, &fd->hf);
+	double shear = 0.5;
+	cyclic_shear_cs(&fd->cs_pos, shear, w);
+	
+    /* Negative shear version */
+    cs_copy_parms(cs_in, &fd->cs_neg);
+	cyclic_alloc_cs(&fd->cs_neg);
+	filter2cs(&fd->cs_neg, &fd->hf);
+	shear = -0.5;
+	cyclic_shear_cs(&fd->cs_neg, shear, w);
+}
+
+/* Compute time-domain filter and sheared CS */
+void compute_filter_data_from_freq(struct filter_data *fd, 
+        const CS *cs_in, const struct cyclic_work *w) {
+
+	/* Convert hf=H(freq) to ht=h(lag)							*/
+	fd->ht.nlag = w->nlag;
+    filter_alloc_time(&fd->ht);
+	filter_freq2time(&fd->hf, &fd->ht, w);
+		
+    /* Positive shear version
+     * Note, "positive" refers to sign of the "shear" argument.
+     * It looks like this sign is opposite to the sign of alpha
+     * that the sheared version applies to.
+     */
+    cs_copy_parms(cs_in, &fd->cs_pos);
+	cyclic_alloc_cs(&fd->cs_pos);
+	filter2cs(&fd->cs_pos, &fd->hf);
+	double shear = 0.5;
+	cyclic_shear_cs(&fd->cs_pos, shear, w);
+	
+    /* Negative shear version */
+    cs_copy_parms(cs_in, &fd->cs_neg);
+	cyclic_alloc_cs(&fd->cs_neg);
+	filter2cs(&fd->cs_neg, &fd->hf);
+	shear = -0.5;
+	cyclic_shear_cs(&fd->cs_neg, shear, w);
+}
+
+/* Free up filter_data memory */
+void free_filter_data(struct filter_data *fd) {
+    filter_free_time(&fd->ht);
+    filter_free_freq(&fd->hf);
+    cyclic_free_cs(&fd->cs_pos);
+    cyclic_free_cs(&fd->cs_neg);
+}
+
+int make_model_cs(CS *cs_model, const struct filter_data *fd,
 				  const struct profile_harm *s0,
 				  const struct cyclic_work *w) {
 
@@ -18,9 +82,13 @@ int make_model_cs(CS *cs_model, const struct filter_freq *hf,
 /* For -ve alpha, take the complex conjugate of these values		*/
 	
     /* Check dimensions												*/
-    if (cs_model->npol!=1 || cs_model->nchan!=hf->nchan || 
+    if (cs_model->npol!=1 || cs_model->nchan!=fd->hf.nchan || 
 		cs_model->nharm!=s0->nharm) { 
 		printf("make_model_cs : Incompatible dimensions\n");
+        printf("cs_model->nchan=%d fd->hf.nchan=%d\n", 
+                cs_model->nchan, fd->hf.nchan);
+        printf("cs_model->nharm=%d s0->nharm=%d\n", 
+                cs_model->nharm, s0->nharm);
 		return(-1); }
 	
 	/* Create the intrinsic cyclic spectrum							*/
@@ -28,6 +96,7 @@ int make_model_cs(CS *cs_model, const struct filter_freq *hf,
 	profile2cs(cs_model, s0);
 	/* Propagate this spectrum through the filter in two steps		*/
 		
+#if 0 
 	/* First multiply by the +ve sheared filter	array				*/
 	/* Create a "cyclic spectrum" array filled with filter hf		*/
 	struct cyclic_spectrum cs_tmp;
@@ -38,10 +107,12 @@ int make_model_cs(CS *cs_model, const struct filter_freq *hf,
 	/* Shear the filter spectrum by +alpha/2						*/
 	double shear = 0.5;
 	cyclic_shear_cs(&cs_tmp, shear, w);
+#endif
 	
 	/* Multiply the intrinsic spectrum by this sheared array		*/
-	cs_multiply(&cs_tmp, cs_model);
+	cs_multiply(&fd->cs_pos, cs_model);
 
+#if 0 
 	/* Now multiply by the conjugate of -ve shifted filter			*/
 	/* Recreate a "cyclic spectrum" array filled with filter hf		*/
 	filter2cs(&cs_tmp, hf);
@@ -53,12 +124,14 @@ int make_model_cs(CS *cs_model, const struct filter_freq *hf,
 	/* Multiply the intrinsic spectrum by this sheared array		*/
 	/* The result is the model cyclic spectrum						*/
 	cs_multiply(&cs_tmp, cs_model);
+#endif
+	cs_multiply_conj(&fd->cs_neg, cs_model);
 	
 	/* Replace the ends of the model CS with zeros					*/
 	cyclic_padding(cs_model);
 		
 	/* Free-up temporary cyclic spectrum and return					*/
-	cyclic_free_cs(&cs_tmp);		
+	//cyclic_free_cs(&cs_tmp);		
     return(0);
 }
 

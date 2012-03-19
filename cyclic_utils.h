@@ -233,6 +233,9 @@ int	cs_subtract(const CS *cs1, CS *cs2);
 /* Added by MAW 15/07/2011											*/
 int	cs_multiply(const CS *cs1, CS *cs2);
 
+/* Multiplies conj(cs1) by cs2, placing the result in cs2			*/
+int	cs_multiply_conj(const CS *cs1, CS *cs2);
+
 /* Forms the conjugate of cs1 (in place)							*/
 /* Added by MAW 15/07/2011											*/
 int	cs_conjugate(CS *cs1);

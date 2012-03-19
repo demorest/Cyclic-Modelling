@@ -32,6 +32,7 @@ double cur_time_in_sec() {
     return (tv.tv_sec+tv.tv_usec*1e-6);
 }
 
+
 /* Return the sum of square differences between current model and	*/
 /* data, using the functional form that nlopt wants.				*/
 /* Compute the gradient of the sum-of-squares if needed.			*/
@@ -56,20 +57,30 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
 		"cyclic_merit_nlopt_freq: error, inconsistent sizes!\n");
         exit(1);
     }
-	
+
+#if 0 
 	/* Put the parameters x into the struct hf, for ease of use		*/
 	int rchan = *(data->rindex);
 	struct filter_freq hf;
 	hf.nchan = data->w->nchan;
     filter_alloc_freq(&hf);
 	parms2struct_freq(x, &hf, rchan);
+#endif
+	
+    /* Init filter_data struct */
+	int rchan = *(data->rindex);
+    struct filter_data fdata;
+    fdata.hf.nchan = data->w->nchan;
+    filter_alloc_freq(&fdata.hf);
+    parms2struct_freq(x, &fdata.hf, rchan);
+    compute_filter_data_from_freq(&fdata, data->cs, data->w);
 	
     /* Compute the model cyclic spectrum from hf and s0				*/
 	struct cyclic_spectrum cs_model;
 	cs_copy_parms(data->cs, &cs_model);
 	cyclic_alloc_cs(&cs_model);
 	
-	int imod = make_model_cs(&cs_model, &hf, data->s0, data->w);
+	int imod = make_model_cs(&cs_model, &fdata, data->s0, data->w);
 	
     if (imod != 0) { fprintf(stderr, 
 		"cyclic_merit_nlopt_freq: error in make_model_cs (%d)\n",imod);
@@ -87,7 +98,7 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
 		
 		int mg;
 		mg = merit_gradient_freq_via_lag(&complex_gradient,
-					data->cs, &hf, data->s0, data->w);
+					data->cs, &fdata, data->s0, data->w);
 		
 		if (mg != 0) { fprintf(stderr, 
 		"cyclic_merit_nlopt_freq: error in merit_gradient_freq (%d)\n",
@@ -111,7 +122,10 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
 	}	
 	
 	cyclic_free_cs(&cs_model);
+#if 0 
     filter_free_freq(&hf);
+#endif
+    free_filter_data(&fdata);
 	
     return(merit);
 }
@@ -141,6 +155,7 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
         exit(1);
     }
 	
+#if 0 
 	/* Put the parameters x into the struct ht, for ease of use		*/
 	int rlag = *(data->rindex);
 	struct filter_time ht;
@@ -153,13 +168,21 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 	hf.nchan = data->w->nchan;
     filter_alloc_freq(&hf);
 	filter_time2freq(&ht, &hf, data->w);
+#endif
+	/* Put the parameters x into the struct ht, for ease of use		*/
+	int rlag = *(data->rindex);
+	struct filter_data fdata;
+	fdata.ht.nlag = data->w->nlag;
+    filter_alloc_time(&fdata.ht);
+	parms2struct_time(x, &fdata.ht, rlag);
+    compute_filter_data_from_time(&fdata, data->cs, data->w);
 		
     /* Compute the model cyclic spectrum from hf and s0				*/
 	struct cyclic_spectrum cs_model;
 	cs_copy_parms(data->cs, &cs_model);
 	cyclic_alloc_cs(&cs_model);
 	
-	int imod = make_model_cs(&cs_model, &hf, data->s0, data->w);
+	int imod = make_model_cs(&cs_model, &fdata, data->s0, data->w);
 	
     if (imod != 0) { fprintf(stderr, 
 	  "cyclic_merit_nlopt_lag: error in make_model_cs (%d)\n",imod);
@@ -178,7 +201,7 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 		
 		int mg;
 		mg = merit_gradient_lag(&complex_gradient_time, data->cs,
-									&hf, data->s0, data->w);
+									&fdata, data->s0, data->w);
 		
 		if (mg != 0) { fprintf(stderr, 
 		   "cyclic_merit_nlopt_lag: error in gradient (%d)\n",mg);
@@ -200,14 +223,17 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 	}	
 	
 	cyclic_free_cs(&cs_model);
+#if 0 
     filter_free_freq(&hf);
     filter_free_time(&ht);
+#endif
+    free_filter_data(&fdata);
 	
     return(merit);
 }
 
 int merit_gradient_lag(struct filter_time *gradient, const CS *cs, 
-						const struct filter_freq *hf, 
+						const struct filter_data *fd, 
 						const struct profile_harm *s0, 
 						const struct cyclic_work *w) {
 	
@@ -217,20 +243,20 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	
     /* Only valid for 1-pol data at present							*/
     if (cs->npol!=1 || w->nlag!=gradient->nlag ||
-		cs->nchan!=hf->nchan || cs->nharm!=s0->nharm) { 
+		cs->nchan!=fd->hf.nchan || cs->nharm!=s0->nharm) { 
 		printf("merit_gradient_lag : Incompatible dimensions\n");
 		exit(1); }
 	
 	/* Allocate temporary CS and CC structs							*/
 	struct cyclic_spectrum cs_res;
 	struct cyclic_spectrum cs_tmp1;
-	struct cyclic_spectrum cs_tmp2;
+	//struct cyclic_spectrum cs_tmp2;
 	cs_copy_parms(cs, &cs_res);
 	cs_copy_parms(cs, &cs_tmp1);
-	cs_copy_parms(cs, &cs_tmp2);
+	//cs_copy_parms(cs, &cs_tmp2);
 	cyclic_alloc_cs(&cs_res);
 	cyclic_alloc_cs(&cs_tmp1);
-	cyclic_alloc_cs(&cs_tmp2);
+	//cyclic_alloc_cs(&cs_tmp2);
 	
 	struct cyclic_correlation cc1;
 	cc1.nharm     = cs->nharm;
@@ -246,7 +272,8 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	
 	
 	/* Construct the current model cyclic spectrum from hf and s0	*/
-	make_model_cs(&cs_res, hf, s0, w);
+    // TODO re-use the already-computed cs_model
+	make_model_cs(&cs_res, fd, s0, w);
 		
 	/* And form the residual ( = model - data )						*/
 	cs_subtract(cs, &cs_res);
@@ -255,6 +282,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* the residual cyclic spectrum to save re-computing			*/
 	cs_copy_data(&cs_res, &cs_tmp1);
 	
+#if 0 
 	/* Positive values of alpha first								*/
 	/* Make a filter array											*/
 	filter2cs(&cs_tmp2, hf);
@@ -265,6 +293,10 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	cs_multiply(&cs_tmp1, &cs_tmp2);
 	/* Convert from cyclic-spectrum to cyclic-correlation			*/
 	cyclic_cs2cc(&cs_tmp2, &cc1, w);
+#endif
+    // New ver:
+    cs_multiply(&fd->cs_neg, &cs_tmp1);
+	cyclic_cs2cc(&cs_tmp1, &cc1, w);
 	
 	/* For each lag, sum over all alpha								*/
 	/* Only one polarisation at present								*/
@@ -289,6 +321,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* The CS for -ve alpha is conjugate of that for +ve alpha		*/
 	cs_copy_data(&cs_res, &cs_tmp1);
 	cs_conjugate(&cs_tmp1);
+#if 0 
 	/* Make a filter array											*/
 	filter2cs(&cs_tmp2, hf);
 	/* And shear the filter array									*/
@@ -298,6 +331,10 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	cs_multiply(&cs_tmp1, &cs_tmp2);
 	/* Convert from cyclic-spectrum to cyclic-correlation			*/
 	cyclic_cs2cc(&cs_tmp2, &cc1, w);
+#endif
+    // New ver:
+    cs_multiply(&fd->cs_pos, &cs_tmp1);
+	cyclic_cs2cc(&cs_tmp1, &cc1, w);
 	
 	/* For each lag, sum over all alpha								*/
 	/* Only one polarisation at present								*/
@@ -317,7 +354,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* Free-up the arrays allocated herein							*/
 	cyclic_free_cs(&cs_res);
 	cyclic_free_cs(&cs_tmp1);
-	cyclic_free_cs(&cs_tmp2);	
+	//cyclic_free_cs(&cs_tmp2);	
 	cyclic_free_cc(&cc1);	
     return(0);
 }
@@ -326,7 +363,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 
 int merit_gradient_freq_via_lag(struct filter_freq *gradient,  
 								const CS *cs, 
-								const struct filter_freq *hf, 
+								const struct filter_data *fd, 
 								const struct profile_harm *s0, 
 								const struct cyclic_work *w) {
 	
@@ -337,7 +374,7 @@ int merit_gradient_freq_via_lag(struct filter_freq *gradient,
 	
     /* Only valid for 1-pol data at present							*/
     if (cs->npol!=1 || w->nchan!=gradient->nchan ||
-		cs->nchan!=hf->nchan || cs->nharm!=s0->nharm) { 
+		cs->nchan!=fd->hf.nchan || cs->nharm!=s0->nharm) { 
 		printf(
 		"merit_gradient_freq_via_lag: Incompatible dimensions\n");
 		exit(1);
@@ -349,7 +386,7 @@ int merit_gradient_freq_via_lag(struct filter_freq *gradient,
 	filter_alloc_time(&lag_gradient);
 	
 	int mg;
-	mg = merit_gradient_lag(&lag_gradient, cs, hf, s0, w);
+	mg = merit_gradient_lag(&lag_gradient, cs, fd, s0, w);
 	
 	if (mg != 0) { fprintf(stderr, 
 	"merit_gradient_freq_via_lag:error in merit_gradient_lag (%d)\n",

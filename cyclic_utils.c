@@ -496,6 +496,28 @@ int	cs_multiply(const CS *cs1, CS *cs2) {
     return(0);
 }
 
+int cs_multiply_conj(const CS *cs1, CS *cs2) {
+    /* Do conj(cs1) * cs2, put result in cs2 */
+	/* Check dimensions												*/
+	if (cs1->nharm!=cs2->nharm || cs1->nchan!=cs2->nchan 
+		|| cs1->npol!=cs2->npol) {
+		printf("Error : cs_multiply : incompatible dimensions\n");
+		exit(1);
+	}
+	
+    int ih, ic, ip;
+    for (ic=0; ic<cs1->nchan; ic++) {
+        for (ip=0; ip<cs1->npol; ip++) {
+            for (ih=0; ih<cs1->nharm; ih++) {
+                fftwf_complex *d1 = get_cs(cs1, ih, ip, ic);
+                fftwf_complex *d2 = get_cs(cs2, ih, ip, ic);
+                *d2 *= conj(*d1);
+            }
+        }
+    }
+    return(0);
+}
+
 int	cs_conjugate(CS *cs1) {
 	/* Routine added by MAW 15/07/2011								*/
 	/* Forms the complex conjugate of cs1, in place					*/
