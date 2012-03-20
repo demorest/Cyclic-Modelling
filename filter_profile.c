@@ -40,6 +40,8 @@ void usage() {printf("filter_profile [Options] filename\n");
     printf("Options:\n");
     printf("  -v verbose\n");
     printf("  -t nthread Number of FFTW threads\n");
+    printf("  -S isub    Start at subint # isub\n");
+    printf("  -N nsub    Process nsub total subints\n");
     printf("  -f frequency-space optimisation\n");
     printf("     (default is lag-space optimisation)\n");
 	printf("  -i initialise (no filter optimisation)\n");
@@ -57,12 +59,13 @@ int run=1;
 void cc(int sig) { run=0; }
 
 int main(int argc, char *argv[]) {
-    int isub = 1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
+    int isub=1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
+    int nsub_proc=0;
     int fft_threads = 2;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"fivR:t:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:t:S:N:"))!=-1) {
         switch (opt) {
             case 'f':
 				lagspace--;
@@ -80,6 +83,12 @@ int main(int argc, char *argv[]) {
                 break;
             case 't':
                 fft_threads = atoi(optarg);
+                break;
+            case 'S':
+                isub = atoi(optarg);
+                break;
+            case 'N':
+                nsub_proc = atoi(optarg);
                 break;
         }
     }
@@ -99,9 +108,17 @@ int main(int argc, char *argv[]) {
     cyclic_load_params(&cf, &w, &nspec);
     cyclic_file_error_check_fatal(&cf);
     
+    int nsub_max = nspec;
+    if (nsub_proc > 0) {
+        nsub_max = isub + nsub_proc - 1;
+        if (nsub_max > nspec) 
+            nsub_max = nspec;
+    }
 	if (verbose) {
        printf("Read nphase = %d, npol = %d, nchan = %d, nspec = %d\n", 
 			   w.nphase, w.npol, w.nchan, nspec);
+       printf("Processing %d total spectra, starting at subint %d\n",
+               nsub_max - isub + 1, isub);
 	   fflush(stdout);
     }
     
@@ -192,8 +209,7 @@ int main(int argc, char *argv[]) {
 	
 	/* Loop over all subintegrations								*/
 	int noptimised=0;
-	isub = 1;
-	while (isub < nspec + 1) {
+	while (isub <= nsub_max) {
 	
 		if (verbose) {
 			printf("Subintegration %d of %d\n", isub, nspec);
@@ -311,7 +327,6 @@ int main(int argc, char *argv[]) {
 				if (verbose) {printf("Freq-space optimisation\n");}				
 			}
 
-			
 			if (verbose) {
 				printf("Number of fit parameters = %d\n", dim);
 			}
@@ -391,7 +406,8 @@ int main(int argc, char *argv[]) {
         profile_harm2phase(&ph, &pp, &w);
 				
 		
-		if (outcome[isub-1]<0 && verbose) {printf("NLOPT failed\n");}
+		if (outcome[isub-1]<0 && verbose) 
+            printf("NLOPT failed (code=%d)\n",outcome[isub-1]);
 			
 		/* Add profile for subint to the intrinsic estimate			*/
 		for (j=0; j<pp_int.nphase; j++) { 
