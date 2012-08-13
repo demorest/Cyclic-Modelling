@@ -42,6 +42,7 @@ void usage() {printf("filter_profile [Options] filename\n");
     printf("  -t nthread Number of FFTW threads\n");
     printf("  -S isub    Start at subint # isub\n");
     printf("  -N nsub    Process nsub total subints\n");
+    printf("  -I nchan   Ignore this many channels at each band edge\n");
     printf("  -f frequency-space optimisation\n");
     printf("     (default is lag-space optimisation)\n");
 	printf("  -i initialise (no filter optimisation)\n");
@@ -60,12 +61,13 @@ void cc(int sig) { run=0; }
 
 int main(int argc, char *argv[]) {
     int isub=1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
+    int nchan_ignore=0;
     int nsub_proc=0;
     int fft_threads = 2;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"fivR:t:S:N:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:t:S:N:I:"))!=-1) {
         switch (opt) {
             case 'f':
 				lagspace--;
@@ -89,6 +91,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'N':
                 nsub_proc = atoi(optarg);
+                break;
+            case 'I':
+                nchan_ignore = atoi(optarg);
                 break;
         }
     }
@@ -119,11 +124,21 @@ int main(int argc, char *argv[]) {
 			   w.nphase, w.npol, w.nchan, nspec);
        printf("Processing %d total spectra, starting at subint %d\n",
                nsub_max - isub + 1, isub);
+       printf("Ignoring %d channels at each band edge\n", nchan_ignore);
 	   fflush(stdout);
+    }
+
+    if (nchan_ignore*2 >= w.nchan) {
+        fprintf(stderr, "nchan_ingore=%d is too large (nchan=%d)\n",
+                nchan_ignore, w.nchan);
+        exit(1);
     }
     
     int orig_npol = w.npol;
     w.npol = 1;
+
+    int orig_nchan = w.nchan;
+    w.nchan = w.nchan - 2*nchan_ignore;
 
     /* Initialise FFTs												*/
     fftwf_init_threads();
@@ -142,7 +157,7 @@ int main(int argc, char *argv[]) {
 
 	
     /* Allocate some stuff											*/
-    struct periodic_spectrum raw;
+    struct periodic_spectrum raw, rawraw;
     struct cyclic_spectrum cs;
     struct filter_freq hf, hf_prev;
 	struct filter_time ht;
@@ -153,10 +168,15 @@ int main(int argc, char *argv[]) {
     raw.nchan = cs.nchan = hf.nchan = hf_prev.nchan = w.nchan;
     cs.nharm = ph.nharm = ph_ref.nharm = w.nharm;
 	ht.nlag = w.nlag;
-    raw.npol = orig_npol;
+    raw.npol = 1;
     cs.npol = 1;
 
+    rawraw.nphase = raw.nphase;
+    rawraw.nchan = orig_nchan;
+    rawraw.npol = orig_npol;
+
     cyclic_alloc_ps(&raw);
+    cyclic_alloc_ps(&rawraw);
     cyclic_alloc_cs(&cs);
     filter_alloc_freq(&hf);
     filter_alloc_freq(&hf_prev);
@@ -216,13 +236,16 @@ int main(int argc, char *argv[]) {
 		}
 		
 		/* Load data												*/
-		raw.npol = orig_npol;
-		cyclic_load_ps(&cf, &raw, isub);
+		rawraw.npol = orig_npol;
+		cyclic_load_ps(&cf, &rawraw, isub);
 		cyclic_file_error_check_fatal(&cf);
 				
 		/* Add polarisations without calibration					*/
-		cyclic_pscrunch_ps(&raw, 1.0, 1.0);
+		cyclic_pscrunch_ps(&rawraw, 1.0, 1.0);
 		/* Only one polarisation from this point in loop			*/
+
+        /* Trim requested number of edge channels                   */
+        cyclic_remove_edge_chans(&rawraw, &raw, nchan_ignore);
 		
 		/* Convert input data to cyclic spectrum					*/
 		cyclic_ps2cs(&raw, &cs, &w);

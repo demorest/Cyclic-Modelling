@@ -192,6 +192,22 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in) {
     return(0);
 }
 
+int cyclic_remove_edge_chans(const PS *in, PS *out, int nchan_ignore) {
+    int iphase, ichan, ipol;
+    for (ichan=nchan_ignore; ichan<in->nchan-nchan_ignore; ichan++) {
+        for (ipol=0; ipol<in->npol; ipol++) {
+            for (iphase=0; iphase<in->nphase; iphase++) {
+                const float *ii;
+                float *oo;
+                ii = get_ps(in,iphase,ipol,ichan);
+                oo = get_ps(out,iphase,ipol,ichan-nchan_ignore);
+                *oo = *ii;
+            }
+        }
+    }
+    return(0);
+}
+
 void cyclic_ps2cs(PS *in, CS *out, const struct cyclic_work *w) {
 	
     fftwf_execute_dft_r2c(w->ps2cs, in->data, out->data);
@@ -991,6 +1007,7 @@ int profile_harm_renorm(struct profile_harm *ph) {
 	/* Divides ph(iharm) by nharm.									*/
 	/* Used by profile_phase2harm so that it is the inverse			*/
 	/* operation of profile_harm2phase								*/
+    /* XXX: divisor should be 2*nharm - 1 ?? */
 	
 	int ih;
 	for (ih=0; ih<ph->nharm; ih++) {
@@ -1026,6 +1043,7 @@ int cyclic_ps2cs_renorm(CS *cs) {
 	/* Routine added by MAW 23/11/2011								*/
 	/* Divides cs by nharm. Used by cyclic_ps2cs so that it is the	*/
 	/* inverse operation of cyclic_cs2ps (not yet implemented!)		*/
+    /* XXX: divisor should be 2*nharm - 1 ?? */
 	
 	int ih, ip, ic;
 	for (ih=0; ih<cs->nharm; ih++) {
