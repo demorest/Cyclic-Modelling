@@ -42,6 +42,7 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 /* with respect to the coefficients of h(lag)						*/
 /* This function added by MAW 08/11/2011 for use with NLOPT			*/
 int merit_gradient_lag(struct filter_time *gradient, const CS *cs, 
+                        const CS *cs_model,
 						const struct filter_data *fd,
 						const struct profile_harm *s0, 
 						const struct cyclic_work *w);
@@ -53,6 +54,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 /* Freq-gradients are computed as the FT of lag-gradients			*/
 int merit_gradient_freq_via_lag(struct filter_freq *gradient, 
 								const CS *cs, 
+								const CS *cs_model, 
 								const struct filter_data *fd,
 								const struct profile_harm *s0, 
 								const struct cyclic_work *w);

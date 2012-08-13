@@ -98,7 +98,7 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
 		
 		int mg;
 		mg = merit_gradient_freq_via_lag(&complex_gradient,
-					data->cs, &fdata, data->s0, data->w);
+					data->cs, &cs_model, &fdata, data->s0, data->w);
 		
 		if (mg != 0) { fprintf(stderr, 
 		"cyclic_merit_nlopt_freq: error in merit_gradient_freq (%d)\n",
@@ -201,7 +201,7 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 		
 		int mg;
 		mg = merit_gradient_lag(&complex_gradient_time, data->cs,
-									&fdata, data->s0, data->w);
+									&cs_model, &fdata, data->s0, data->w);
 		
 		if (mg != 0) { fprintf(stderr, 
 		   "cyclic_merit_nlopt_lag: error in gradient (%d)\n",mg);
@@ -233,6 +233,7 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 }
 
 int merit_gradient_lag(struct filter_time *gradient, const CS *cs, 
+                        const CS *cs_model,
 						const struct filter_data *fd, 
 						const struct profile_harm *s0, 
 						const struct cyclic_work *w) {
@@ -273,7 +274,8 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	
 	/* Construct the current model cyclic spectrum from hf and s0	*/
     // TODO re-use the already-computed cs_model
-	make_model_cs(&cs_res, fd, s0, w);
+	//make_model_cs(&cs_res, fd, s0, w);
+	cs_copy_data(cs_model, &cs_res);
 		
 	/* And form the residual ( = model - data )						*/
 	cs_subtract(cs, &cs_res);
@@ -363,6 +365,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 
 int merit_gradient_freq_via_lag(struct filter_freq *gradient,  
 								const CS *cs, 
+								const CS *cs_model, 
 								const struct filter_data *fd, 
 								const struct profile_harm *s0, 
 								const struct cyclic_work *w) {
@@ -386,7 +389,7 @@ int merit_gradient_freq_via_lag(struct filter_freq *gradient,
 	filter_alloc_time(&lag_gradient);
 	
 	int mg;
-	mg = merit_gradient_lag(&lag_gradient, cs, fd, s0, w);
+	mg = merit_gradient_lag(&lag_gradient, cs, cs_model, fd, s0, w);
 	
 	if (mg != 0) { fprintf(stderr, 
 	"merit_gradient_freq_via_lag:error in merit_gradient_lag (%d)\n",
