@@ -6,6 +6,9 @@ PSRCHIVE_CFLAGS = $(shell psrchive --cflags)
 PSRCHIVE_LIBS = $(shell psrchive --libs)
 FILEIO_OBJ = cyclic_fileio_psrchive.o
 
+# This didn't used to be necessary...
+PSRCHIVE_LIBS += -lstdc++
+
 # Uncomment these to use old fits file format
 #PSRCHIVE_CFLAGS = 
 #PSRCHIVE_LIBS = 
