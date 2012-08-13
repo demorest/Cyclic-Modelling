@@ -193,6 +193,19 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in) {
 }
 
 int cyclic_remove_edge_chans(const PS *in, PS *out, int nchan_ignore) {
+
+    /* Set the info */
+    out->nphase = in->nphase;
+    out->npol = in->npol;
+    out->nchan = in->nchan - 2*nchan_ignore;
+    out->imjd = in->imjd;
+    out->fmjd = in->fmjd;
+    out->ref_phase = in->ref_phase;
+    out->ref_freq = in->ref_freq;
+    out->rf = in->rf;
+    out->bw = in->bw * (double)(out->nchan) / (double)(in->nchan);
+
+    /* Copy the data */
     int iphase, ichan, ipol;
     for (ichan=nchan_ignore; ichan<in->nchan-nchan_ignore; ichan++) {
         for (ipol=0; ipol<in->npol; ipol++) {
@@ -205,6 +218,7 @@ int cyclic_remove_edge_chans(const PS *in, PS *out, int nchan_ignore) {
             }
         }
     }
+
     return(0);
 }
 
@@ -832,7 +846,7 @@ int normalise_cs(CS *cs) {
 	int ic, ip, ih = 1;
 	float rms1 = rms_cs(cs,ih); 
 	ih = cs->nharm-1;
-	float rmsn = rms_cs(cs,ih); 
+    float rmsn = rms_cs(cs,ih);
 	float normfac = 1./sqrt(fabs(rms1*rms1 - rmsn*rmsn));; 
 	
 	for (ih=0; ih<cs->nharm; ih++) {
