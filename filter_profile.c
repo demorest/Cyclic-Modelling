@@ -188,9 +188,14 @@ int main(int argc, char *argv[]) {
     profile_alloc_harm(&ph_ref);
 
 	/* Initialise arrays for dynamic spectrum and optimised filters	*/
-	float dynamic_spectrum[nspec][w.nchan];
-	fftwf_complex optimised_filters[nspec][w.nchan];
+    float **dynamic_spectrum = 
+        (float **)malloc(sizeof(float*) * nspec);
+	fftwf_complex **optimised_filters =
+        (fftwf_complex **)malloc(sizeof(fftwf_complex*)*nspec);
 	for (is=0; is<nspec; is++) {
+        dynamic_spectrum[is] = (float *)malloc(sizeof(float)*w.nchan);
+        optimised_filters[is] = 
+            (fftwf_complex *)malloc(sizeof(fftwf_complex)*w.nchan);
 		for (ic=0; ic<w.nchan;ic++) {
 			dynamic_spectrum[is][ic]  = 0.;
 			optimised_filters[is][ic] = 0. + I * 0.;
@@ -198,9 +203,9 @@ int main(int argc, char *argv[]) {
 	}
 	
 	/* Initialise arrays to record optimisation stats				*/
-	float minima[nspec];
-	int outcome[nspec];
-	int	callno[nspec];
+	float *minima = (float *)malloc(sizeof(float) * nspec);
+	int *outcome = (int *)malloc(sizeof(int) * nspec);
+	int	*callno = (int *)malloc(sizeof(int) * nspec);
 	for (is=0; is<nspec; is++) {
 		minima[is]  = 0.0;
 		outcome[is] = 0;
