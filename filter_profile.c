@@ -46,6 +46,8 @@ void usage() {printf("filter_profile [Options] filename\n");
     printf("  -f frequency-space optimisation\n");
     printf("     (default is lag-space optimisation)\n");
 	printf("  -i initialise (no filter optimisation)\n");
+    printf("  -p previous\n");
+    printf("     (start optimisation from existing filter solutions)\n");
     printf("  -R fname  Use the Reference pulse profile in fname\n");
     printf("Must invoke with -i or -R options\n");
 }
@@ -63,11 +65,11 @@ int main(int argc, char *argv[]) {
     int isub=1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
     int nchan_ignore=0;
     int nsub_proc=0;
-    int fft_threads = 2;
+    int fft_threads = 2, previous=0;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"fivR:t:S:N:I:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:t:pS:N:I:"))!=-1) {
         switch (opt) {
             case 'f':
 				lagspace--;
@@ -77,6 +79,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'v':
                 verbose++;
+                break;
+            case 'p':
+                previous++;
                 break;
             case 'R':
                 ref_prof = optarg;
@@ -99,6 +104,10 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind==argc || opcheck!=1) { usage(); exit(1); }
+    if (previous && !do_optimisation) {
+        printf("Cannot use -p (previous) option on initialisation\n");
+        exit(1);
+    }
 	
 	int ic, ih, j, is, rv, nspec=1;
 	
@@ -187,6 +196,15 @@ int main(int argc, char *argv[]) {
     profile_alloc_harm(&ph);
     profile_alloc_harm(&ph_ref);
 
+    /* Generate output filename for filters from data filename      */
+	char *inputptr = argv[optind];
+	char dotchar = '.';
+	char *dotpos = strrchr(inputptr,dotchar);
+	size_t fnamelength = dotpos - inputptr + 1 ;
+	//char *outputptr = inputptr;	 // XXX yikes!
+	char outputptr[256];
+	strcpy(outputptr,inputptr);
+		
 	/* Initialise arrays for dynamic spectrum and optimised filters	*/
     float **dynamic_spectrum = 
         (float **)malloc(sizeof(float*) * nspec);
@@ -196,9 +214,40 @@ int main(int argc, char *argv[]) {
         dynamic_spectrum[is] = (float *)malloc(sizeof(float)*w.nchan);
         optimised_filters[is] = 
             (fftwf_complex *)malloc(sizeof(fftwf_complex)*w.nchan);
-		for (ic=0; ic<w.nchan;ic++) {
-			dynamic_spectrum[is][ic]  = 0.;
-			optimised_filters[is][ic] = 0. + I * 0.;
+    }
+    int old_nspec=0, old_nchan=0;
+    float rprev=0., iprev=0.;
+    if (previous) {
+        /* Read in the optimised filters from a previous iteration  */
+        outputptr[fnamelength] = '\0';
+        strcat(outputptr,"filters.txt");
+        FILE *fpointer = fopen(outputptr, "r");
+        if (fpointer==NULL) {
+            fprintf(stderr,"Cannot open previous filter file\n");
+            exit(1);
+        }
+        fscanf(fpointer,"%d", &old_nspec);
+        fscanf(fpointer,"%d", &old_nchan);
+        if (old_nchan!=w.nchan || old_nspec!=nspec) {
+            fprintf(stderr,"Dimensions of previous filter file\n");
+            fprintf(stderr,"are incompatible with data file\n");
+            exit(1);
+        }
+        for (is=0; is<nspec; is++) {
+            for (ic=0; ic<w.nchan; ic++) {
+                fscanf(fpointer, "%f %f", &rprev, &iprev);
+                optimised_filters[is][ic] = rprev + I * iprev;
+                dynamic_spectrum[is][ic]  = 0.;
+            }
+        }
+        fclose(fpointer);
+    }
+    else {
+        for (is=0; is<nspec; is++) {
+            for (ic=0; ic<w.nchan;ic++) {
+                dynamic_spectrum[is][ic]  = 0.;
+                optimised_filters[is][ic] = 0. + I * 0.;
+            }
 		}
 	}
 	
@@ -216,8 +265,15 @@ int main(int argc, char *argv[]) {
 	for (j=0; j<pp_int.nphase; j++) { pp_int.data[j] = 0.0; }
 		
 	/* Initialise the "previous" filter coefficients to unity		*/
-	for (ic=0; ic<hf_prev.nchan; ic++) {
-		hf_prev.data[ic] = 1.0 + I * 0.0;
+    if (previous) {
+        for (ic=0; ic<hf_prev.nchan; ic++) {
+            hf_prev.data[ic] = optimised_filters[0][ic];
+        }
+    }
+    else {
+        for (ic=0; ic<hf_prev.nchan; ic++) {
+        hf_prev.data[ic] = 1.0 + I * 0.0;
+        }
 	}
 	
 	if (do_optimisation) {
@@ -278,6 +334,14 @@ int main(int argc, char *argv[]) {
 				hf.data[ic] = 1.0 + I * 0.0;
 			}
 		}
+        else if (previous) {
+        /* We already have a set of filter solutions for these data */
+        /* so use those as the starting point for the optimisation  */
+            printf("Starting from previous filter solution\n");
+            for (ic=0; ic<hf.nchan; ic++) {
+                hf.data[ic] = optimised_filters[isub-1][ic];
+            }
+        }
 		else if (!noptimised) {
 		/* Otherwise if this is the first sample then we estimate	*/
 		/* the phase gradient in H(freq) and set h(lag)	to be a		*/
@@ -414,7 +478,7 @@ int main(int argc, char *argv[]) {
 		/* Rotate the phases of the current filter so that they		*/
 		/* match the previous time-step as closely as possible		*/
 		/* And normalise the r.m.s. amplitude to unity				*/
-		match_two_filters(&hf_prev, &hf);
+		//match_two_filters(&hf_prev, &hf);
 		
 		/* Put current optimised filter(freq) into output array		*/
 		for (ic=0; ic<hf.nchan; ic++) {
@@ -452,13 +516,6 @@ int main(int argc, char *argv[]) {
 
 	}
 
-	char *inputptr = argv[optind];
-	char dotchar = '.';
-	char *dotpos = strrchr(inputptr,dotchar);
-	size_t fnamelength = dotpos - inputptr + 1 ;
-	char *outputptr = inputptr;	
-	strcpy(outputptr,inputptr);
-		
 	/* Output intrinsic profile (= scattered profile if opt = -i)	*/
 	outputptr[fnamelength] = '\0';
 	strcat(outputptr,"profile.txt");
