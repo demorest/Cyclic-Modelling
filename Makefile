@@ -1,5 +1,5 @@
 PROGS1 = filter_profile
-CC = gcc -pg
+CC = gcc
 
 # Uncomment these to use psrchive for reading input
 PSRCHIVE_CFLAGS = $(shell psrchive --cflags)

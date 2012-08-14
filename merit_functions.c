@@ -58,15 +58,6 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
         exit(1);
     }
 
-#if 0 
-	/* Put the parameters x into the struct hf, for ease of use		*/
-	int rchan = *(data->rindex);
-	struct filter_freq hf;
-	hf.nchan = data->w->nchan;
-    filter_alloc_freq(&hf);
-	parms2struct_freq(x, &hf, rchan);
-#endif
-	
     /* Init filter_data struct */
 	int rchan = *(data->rindex);
     struct filter_data fdata;
@@ -122,9 +113,6 @@ double cyclic_merit_nlopt_freq(unsigned n, const double *x,
 	}	
 	
 	cyclic_free_cs(&cs_model);
-#if 0 
-    filter_free_freq(&hf);
-#endif
     free_filter_data(&fdata);
 	
     return(merit);
@@ -155,20 +143,6 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
         exit(1);
     }
 	
-#if 0 
-	/* Put the parameters x into the struct ht, for ease of use		*/
-	int rlag = *(data->rindex);
-	struct filter_time ht;
-	ht.nlag = data->w->nlag;
-    filter_alloc_time(&ht);
-	parms2struct_time(x, &ht, rlag);
-		
-	/* Convert ht=h(lag) to hf=H(freq)								*/
-	struct filter_freq hf;
-	hf.nchan = data->w->nchan;
-    filter_alloc_freq(&hf);
-	filter_time2freq(&ht, &hf, data->w);
-#endif
 	/* Put the parameters x into the struct ht, for ease of use		*/
 	int rlag = *(data->rindex);
 	struct filter_data fdata;
@@ -223,10 +197,6 @@ double cyclic_merit_nlopt_lag(unsigned n, const double *x,
 	}	
 	
 	cyclic_free_cs(&cs_model);
-#if 0 
-    filter_free_freq(&hf);
-    filter_free_time(&ht);
-#endif
     free_filter_data(&fdata);
 	
     return(merit);
@@ -251,13 +221,10 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* Allocate temporary CS and CC structs							*/
 	struct cyclic_spectrum cs_res;
 	struct cyclic_spectrum cs_tmp1;
-	//struct cyclic_spectrum cs_tmp2;
 	cs_copy_parms(cs, &cs_res);
 	cs_copy_parms(cs, &cs_tmp1);
-	//cs_copy_parms(cs, &cs_tmp2);
 	cyclic_alloc_cs(&cs_res);
 	cyclic_alloc_cs(&cs_tmp1);
-	//cyclic_alloc_cs(&cs_tmp2);
 	
 	struct cyclic_correlation cc1;
 	cc1.nharm     = cs->nharm;
@@ -273,8 +240,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	
 	
 	/* Construct the current model cyclic spectrum from hf and s0	*/
-    // TODO re-use the already-computed cs_model
-	//make_model_cs(&cs_res, fd, s0, w);
+    // re-use the already-computed cs_model
 	cs_copy_data(cs_model, &cs_res);
 		
 	/* And form the residual ( = model - data )						*/
@@ -284,18 +250,6 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* the residual cyclic spectrum to save re-computing			*/
 	cs_copy_data(&cs_res, &cs_tmp1);
 	
-#if 0 
-	/* Positive values of alpha first								*/
-	/* Make a filter array											*/
-	filter2cs(&cs_tmp2, hf);
-	/* And shear the filter array									*/
-	double shear = -0.5;
-	cyclic_shear_cs(&cs_tmp2, shear, w);
-	/* Form the product of residuals with sheared filters			*/
-	cs_multiply(&cs_tmp1, &cs_tmp2);
-	/* Convert from cyclic-spectrum to cyclic-correlation			*/
-	cyclic_cs2cc(&cs_tmp2, &cc1, w);
-#endif
     // New ver:
     cs_multiply(&fd->cs_neg, &cs_tmp1);
 	cyclic_cs2cc(&cs_tmp1, &cc1, w);
@@ -323,17 +277,7 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* The CS for -ve alpha is conjugate of that for +ve alpha		*/
 	cs_copy_data(&cs_res, &cs_tmp1);
 	cs_conjugate(&cs_tmp1);
-#if 0 
-	/* Make a filter array											*/
-	filter2cs(&cs_tmp2, hf);
-	/* And shear the filter array									*/
-	shear = 0.5;
-	cyclic_shear_cs(&cs_tmp2, shear, w);
-	/* Form the product of residuals with sheared filters			*/
-	cs_multiply(&cs_tmp1, &cs_tmp2);
-	/* Convert from cyclic-spectrum to cyclic-correlation			*/
-	cyclic_cs2cc(&cs_tmp2, &cc1, w);
-#endif
+
     // New ver:
     cs_multiply(&fd->cs_pos, &cs_tmp1);
 	cyclic_cs2cc(&cs_tmp1, &cc1, w);
@@ -356,7 +300,6 @@ int merit_gradient_lag(struct filter_time *gradient, const CS *cs,
 	/* Free-up the arrays allocated herein							*/
 	cyclic_free_cs(&cs_res);
 	cyclic_free_cs(&cs_tmp1);
-	//cyclic_free_cs(&cs_tmp2);	
 	cyclic_free_cc(&cc1);	
     return(0);
 }

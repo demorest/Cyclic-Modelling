@@ -96,42 +96,15 @@ int make_model_cs(CS *cs_model, const struct filter_data *fd,
 	profile2cs(cs_model, s0);
 	/* Propagate this spectrum through the filter in two steps		*/
 		
-#if 0 
-	/* First multiply by the +ve sheared filter	array				*/
-	/* Create a "cyclic spectrum" array filled with filter hf		*/
-	struct cyclic_spectrum cs_tmp;
-	cs_copy_parms(cs_model, &cs_tmp);
-	cyclic_alloc_cs(&cs_tmp);
-	filter2cs(&cs_tmp, hf);
-	
-	/* Shear the filter spectrum by +alpha/2						*/
-	double shear = 0.5;
-	cyclic_shear_cs(&cs_tmp, shear, w);
-#endif
-	
 	/* Multiply the intrinsic spectrum by this sheared array		*/
 	cs_multiply(&fd->cs_pos, cs_model);
 
-#if 0 
-	/* Now multiply by the conjugate of -ve shifted filter			*/
-	/* Recreate a "cyclic spectrum" array filled with filter hf		*/
-	filter2cs(&cs_tmp, hf);
-	/* Shear the filter spectrum by -alpha/2						*/
-	shear = -0.5;
-	cyclic_shear_cs(&cs_tmp, shear, w);
-	/* Form the complex conjugate									*/
-	cs_conjugate(&cs_tmp);
-	/* Multiply the intrinsic spectrum by this sheared array		*/
-	/* The result is the model cyclic spectrum						*/
-	cs_multiply(&cs_tmp, cs_model);
-#endif
 	cs_multiply_conj(&fd->cs_neg, cs_model);
 	
 	/* Replace the ends of the model CS with zeros					*/
 	cyclic_padding(cs_model);
 		
 	/* Free-up temporary cyclic spectrum and return					*/
-	//cyclic_free_cs(&cs_tmp);		
     return(0);
 }
 
