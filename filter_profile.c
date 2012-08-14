@@ -488,11 +488,21 @@ int main(int argc, char *argv[]) {
 			exit(1);
 		}
 
-        // TODO combined output of filter/profiles here
-		
         /* Convert profile(harmonic) to profile(phase)				*/
         ph.data[0] = 0.0 + I * 0.0;
         profile_harm2phase(&ph, &pp, &w);
+		
+        // Combined output of filter/profiles here
+        outputptr[fnamelength] = '\0';
+        strcat(outputptr, "filters.fits");
+        if (!noptimised) {
+            // Init output files
+            init_filter_file(outputptr, nspec, w.nchan, w.nphase, 
+                    cs.imjd, cs.fmjd);
+        }
+        // Output stuff
+        append_filter(outputptr, isub, cs.imjd, cs.fmjd, &hf);
+        append_profile(outputptr, isub, &pp);
 		
 		if (outcome[isub-1]<0 && verbose) 
             printf("NLOPT failed (code=%d)\n",outcome[isub-1]);
