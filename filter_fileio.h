@@ -20,4 +20,7 @@ void write_filter_freq(const char *fname, struct filter_freq *h);
 /* Read in the pulse profile										*/
 void read_profile(const char *fname, struct profile_phase *pp);
 
+/* Read in a filter solution file */
+int read_filters(const char *fname, int nspec_expect, int nchan_expect,
+        fftwf_complex **data);
 #endif

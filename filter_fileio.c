@@ -65,3 +65,40 @@ void read_profile(const char *fname, struct profile_phase *pp) {
     fclose(f);
 }
 
+int read_filters(const char *fname, int nspec_expect, int nchan_expect,
+        fftwf_complex **data) {
+
+    FILE *fpointer = fopen(fname, "r");
+    if (fpointer==NULL) {
+        fprintf(stderr,"Cannot open filter file '%s'\n", fname);
+        return(-1);
+    }
+
+    int nspec, nchan;
+    fscanf(fpointer,"%d", &nspec);
+    fscanf(fpointer,"%d", &nchan);
+    if (nchan!=nchan_expect || nspec!=nspec_expect) {
+        fprintf(stderr,"File dimensions (%d,%d) don't match expected (%d,%d)\n",
+                nspec, nchan, nspec_expect, nchan_expect);
+        fclose(fpointer);
+        return(-2);
+    }
+
+    int is, ic, rv;
+    float rprev=0, iprev=0;
+    for (is=0; is<nspec; is++) {
+        for (ic=0; ic<nchan; ic++) {
+            rv = fscanf(fpointer, "%f %f", &rprev, &iprev);
+            if (rv != 2) {
+                fprintf(stderr, "Not enough data in filter file\n");
+                fclose(fpointer);
+                return(-3);
+            }
+            data[is][ic] = rprev + I * iprev;
+        }
+    }
+
+    fclose(fpointer);
+    return(0);
+
+}

@@ -62,6 +62,22 @@ int sample_ncalls = 0;
 int run=1;
 void cc(int sig) { run=0; }
 
+/* Simple array allocation fn, inits to zero */
+void **init_array(size_t element_size, int n1, int n2) {
+    void **array2d = (void **)malloc(sizeof(void*) * n1);
+    void *array1d = (void *)malloc(element_size * n1 * n2);
+    memset(array1d, 0, element_size * n1 * n2);
+    int i;
+    for (i=0; i<n1; i++) {
+        array2d[i] = array1d + (i * n2 * element_size);
+    }
+    return(array2d);
+}
+void free_array(void **array) {
+    free(array[0]);
+    free(array);
+}
+
 int main(int argc, char *argv[]) {
     int isub=1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
     int nchan_ignore=0;
@@ -202,56 +218,34 @@ int main(int argc, char *argv[]) {
 	char dotchar = '.';
 	char *dotpos = strrchr(inputptr,dotchar);
 	size_t fnamelength = dotpos - inputptr + 1 ;
-	//char *outputptr = inputptr;	 // XXX yikes!
 	char outputptr[256];
 	strcpy(outputptr,inputptr);
 		
 	/* Initialise arrays for dynamic spectrum and optimised filters	*/
-    float **dynamic_spectrum = 
-        (float **)malloc(sizeof(float*) * nspec);
-	fftwf_complex **optimised_filters =
-        (fftwf_complex **)malloc(sizeof(fftwf_complex*)*nspec);
-	for (is=0; is<nspec; is++) {
-        dynamic_spectrum[is] = (float *)malloc(sizeof(float)*w.nchan);
-        optimised_filters[is] = 
-            (fftwf_complex *)malloc(sizeof(fftwf_complex)*w.nchan);
-    }
-    int old_nspec=0, old_nchan=0;
-    float rprev=0., iprev=0.;
+    //float **dynamic_spectrum = 
+    //    (float **)malloc(sizeof(float*) * nspec);
+	//fftwf_complex **optimised_filters =
+    //    (fftwf_complex **)malloc(sizeof(fftwf_complex*)*nspec);
+	//for (is=0; is<nspec; is++) {
+    //    dynamic_spectrum[is] = (float *)malloc(sizeof(float)*w.nchan);
+    //    optimised_filters[is] = 
+    //        (fftwf_complex *)malloc(sizeof(fftwf_complex)*w.nchan);
+    //}
+    float **dynamic_spectrum = (float **)init_array(
+            sizeof(float), nspec, w.nchan);
+	fftwf_complex **optimised_filters = (fftwf_complex **)init_array(
+            sizeof(fftwf_complex), nspec, w.nchan);
     if (previous) {
         /* Read in the optimised filters from a previous iteration  */
         outputptr[fnamelength] = '\0';
         strcat(outputptr,"filters.txt");
-        FILE *fpointer = fopen(outputptr, "r");
-        if (fpointer==NULL) {
-            fprintf(stderr,"Cannot open previous filter file\n");
+        rv = read_filters(outputptr, nspec, w.nchan, optimised_filters);
+        if (rv<0) {
+            fprintf(stderr, "Error reading previous solution\n");
             exit(1);
         }
-        fscanf(fpointer,"%d", &old_nspec);
-        fscanf(fpointer,"%d", &old_nchan);
-        if (old_nchan!=w.nchan || old_nspec!=nspec) {
-            fprintf(stderr,"Dimensions of previous filter file\n");
-            fprintf(stderr,"are incompatible with data file\n");
-            exit(1);
-        }
-        for (is=0; is<nspec; is++) {
-            for (ic=0; ic<w.nchan; ic++) {
-                fscanf(fpointer, "%f %f", &rprev, &iprev);
-                optimised_filters[is][ic] = rprev + I * iprev;
-                dynamic_spectrum[is][ic]  = 0.;
-            }
-        }
-        fclose(fpointer);
     }
-    else {
-        for (is=0; is<nspec; is++) {
-            for (ic=0; ic<w.nchan;ic++) {
-                dynamic_spectrum[is][ic]  = 0.;
-                optimised_filters[is][ic] = 0. + I * 0.;
-            }
-		}
-	}
-	
+
 	/* Initialise arrays to record optimisation stats				*/
 	float *minima = (float *)malloc(sizeof(float) * nspec);
 	int *outcome = (int *)malloc(sizeof(int) * nspec);
@@ -486,8 +480,6 @@ int main(int argc, char *argv[]) {
 			optimised_filters[isub-1][ic]=hf.data[ic];
 		}
 
-        // TODO output each filter, and dynamic spectrum here
-		
 		/* Get optimised profile, given filter,	for this sub-int	*/
 		int iprof = 0;
 		iprof = optimise_profile(&ph, &cs, &hf, &w);
@@ -496,12 +488,11 @@ int main(int argc, char *argv[]) {
 			exit(1);
 		}
 
-        // TODO output profiles here?
+        // TODO combined output of filter/profiles here
 		
         /* Convert profile(harmonic) to profile(phase)				*/
         ph.data[0] = 0.0 + I * 0.0;
         profile_harm2phase(&ph, &pp, &w);
-				
 		
 		if (outcome[isub-1]<0 && verbose) 
             printf("NLOPT failed (code=%d)\n",outcome[isub-1]);
@@ -580,6 +571,8 @@ int main(int argc, char *argv[]) {
     profile_free_harm(&ph_ref);
     profile_free_phase(&pp_int);
 	cyclic_free_ffts(&w);
+    free_array((void**)dynamic_spectrum);
+    free_array((void**)optimised_filters);
 	
     exit(0);
 }
