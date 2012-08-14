@@ -105,6 +105,12 @@ int cyclic_load_ps(struct cyclic_file *cf, PS *d, int idx) try {
     d->rf = subint->get_centre_frequency();
     d->bw = subint->get_bandwidth();
 
+    // This should cause subints to be freed and avoid accumulating in 
+    // memory.  Might want to make this an option to avoid re-reading
+    // everything from disk, it's only a problem for very large 
+    // input files.
+    arch->refresh();
+
     return(cf->err_status);
 }
 catch (Error &err) {

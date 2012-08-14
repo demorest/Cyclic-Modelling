@@ -168,6 +168,9 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in);
 /* Sums the input cyclic spectrum over radio frequency				*/
 /* and puts the result into the output harmonic profile				*/
 int cyclic_fscrunch_cs(struct profile_harm *out, const CS *in);
+
+/* Remove some amount of channels from each edge of band            */
+int cyclic_remove_edge_chans(const PS *in, PS *out, int nchan_ignore);
 	
 /* Conversion routines												*/
 void cyclic_ps2cs(PS *in, CS *out, const struct cyclic_work *w);

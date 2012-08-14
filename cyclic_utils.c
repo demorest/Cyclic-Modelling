@@ -192,6 +192,36 @@ int cyclic_fscrunch_ps(struct profile_phase *out, PS *in) {
     return(0);
 }
 
+int cyclic_remove_edge_chans(const PS *in, PS *out, int nchan_ignore) {
+
+    /* Set the info */
+    out->nphase = in->nphase;
+    out->npol = in->npol;
+    out->nchan = in->nchan - 2*nchan_ignore;
+    out->imjd = in->imjd;
+    out->fmjd = in->fmjd;
+    out->ref_phase = in->ref_phase;
+    out->ref_freq = in->ref_freq;
+    out->rf = in->rf;
+    out->bw = in->bw * (double)(out->nchan) / (double)(in->nchan);
+
+    /* Copy the data */
+    int iphase, ichan, ipol;
+    for (ichan=nchan_ignore; ichan<in->nchan-nchan_ignore; ichan++) {
+        for (ipol=0; ipol<in->npol; ipol++) {
+            for (iphase=0; iphase<in->nphase; iphase++) {
+                const float *ii;
+                float *oo;
+                ii = get_ps(in,iphase,ipol,ichan);
+                oo = get_ps(out,iphase,ipol,ichan-nchan_ignore);
+                *oo = *ii;
+            }
+        }
+    }
+
+    return(0);
+}
+
 void cyclic_ps2cs(PS *in, CS *out, const struct cyclic_work *w) {
 	
     fftwf_execute_dft_r2c(w->ps2cs, in->data, out->data);
@@ -311,60 +341,6 @@ double filter_ms_difference(struct filter_time *f1,
         sum += creal(diff*conj(diff));
     }
     return(sum);
-}
-
-void write_profile(const char *fname, struct profile_phase *p) {
-    FILE *f = fopen(fname, "w");
-    int i;
-    for (i=0; i<p->nphase; i++) {
-        fprintf(f,"%.7e %.7e\n",
-				(double)i/(double)p->nphase, p->data[i]);
-    }
-    fclose(f);
-}
-
-void write_fprofile(const char *fname, struct profile_harm *p) {
-    FILE *f = fopen(fname, "a");
-    int i;
-    for (i=0; i<p->nharm; i++) {
-        fprintf(f,"%d %.7e %.7e\n",
-				i, creal(p->data[i]), cimag(p->data[i]));
-    }
-    fprintf(f,"\n\n");
-    fclose(f);
-}
-
-void write_filter(const char *fname, struct filter_time *h) {
-    FILE *f = fopen(fname, "a");
-    int i;
-    for (i=0; i<h->nlag; i++) {
-        fprintf(f,"%d %.7e %.7e\n",
-				i, creal(h->data[i]), cimag(h->data[i]));
-    }
-    fprintf(f,"\n\n");
-    fclose(f);
-}
-
-void write_filter_freq(const char *fname, struct filter_freq *h) {
-    FILE *f = fopen(fname, "a");
-    int i;
-    for (i=0; i<h->nchan; i++) {
-        fprintf(f,"%d %.7e %.7e\n",
-				i, creal(h->data[i]), cimag(h->data[i]));
-    }
-    fprintf(f,"\n\n");
-    fclose(f);
-}
-
-void read_profile(const char *fname, struct profile_phase *pp) {
-    FILE *f = fopen(fname, "r");
-    int i;
-	float ptmp, dtmp;
-    for (i=0; i<pp->nphase; i++) {
-        fscanf(f,"%f %f", &ptmp, &dtmp);
-		pp->data[i] = dtmp;
-    }
-    fclose(f);
 }
 
 int	maximum_cs1(const CS *cs) {
@@ -838,7 +814,7 @@ int normalise_cs(CS *cs) {
 	int ic, ip, ih = 1;
 	float rms1 = rms_cs(cs,ih); 
 	ih = cs->nharm-1;
-	float rmsn = rms_cs(cs,ih); 
+    float rmsn = rms_cs(cs,ih);
 	float normfac = 1./sqrt(fabs(rms1*rms1 - rmsn*rmsn));; 
 	
 	for (ih=0; ih<cs->nharm; ih++) {
@@ -1013,6 +989,7 @@ int profile_harm_renorm(struct profile_harm *ph) {
 	/* Divides ph(iharm) by nharm.									*/
 	/* Used by profile_phase2harm so that it is the inverse			*/
 	/* operation of profile_harm2phase								*/
+    /* XXX: divisor should be 2*nharm - 1 ?? */
 	
 	int ih;
 	for (ih=0; ih<ph->nharm; ih++) {
@@ -1048,6 +1025,7 @@ int cyclic_ps2cs_renorm(CS *cs) {
 	/* Routine added by MAW 23/11/2011								*/
 	/* Divides cs by nharm. Used by cyclic_ps2cs so that it is the	*/
 	/* inverse operation of cyclic_cs2ps (not yet implemented!)		*/
+    /* XXX: divisor should be 2*nharm - 1 ?? */
 	
 	int ih, ip, ic;
 	for (ih=0; ih<cs->nharm; ih++) {

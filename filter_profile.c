@@ -33,6 +33,7 @@
 
 #include "cyclic_utils.h"
 #include "cyclic_fileio.h"
+#include "filter_fileio.h"
 #include "model_cyclic.h"
 #include "merit_functions.h"
 
@@ -42,9 +43,12 @@ void usage() {printf("filter_profile [Options] filename\n");
     printf("  -t nthread Number of FFTW threads\n");
     printf("  -S isub    Start at subint # isub\n");
     printf("  -N nsub    Process nsub total subints\n");
+    printf("  -I nchan   Ignore this many channels at each band edge\n");
     printf("  -f frequency-space optimisation\n");
     printf("     (default is lag-space optimisation)\n");
 	printf("  -i initialise (no filter optimisation)\n");
+    printf("  -p previous\n");
+    printf("     (start optimisation from existing filter solutions)\n");
     printf("  -R fname  Use the Reference pulse profile in fname\n");
     printf("Must invoke with -i or -R options\n");
 }
@@ -58,14 +62,31 @@ int sample_ncalls = 0;
 int run=1;
 void cc(int sig) { run=0; }
 
+/* Simple array allocation fn, inits to zero */
+void **init_array(size_t element_size, int n1, int n2) {
+    void **array2d = (void **)malloc(sizeof(void*) * n1);
+    void *array1d = (void *)malloc(element_size * n1 * n2);
+    memset(array1d, 0, element_size * n1 * n2);
+    int i;
+    for (i=0; i<n1; i++) {
+        array2d[i] = array1d + (i * n2 * element_size);
+    }
+    return(array2d);
+}
+void free_array(void **array) {
+    free(array[0]);
+    free(array);
+}
+
 int main(int argc, char *argv[]) {
     int isub=1, opt=0, opcheck=0, do_optimisation=0, lagspace=1;
+    int nchan_ignore=0;
     int nsub_proc=0;
-    int fft_threads = 2;
+    int fft_threads = 2, previous=0;
 	extern int verbose;
 	extern int sample_ncalls;
 	char *ref_prof="";
-    while ((opt=getopt(argc,argv,"fivR:t:S:N:"))!=-1) {
+    while ((opt=getopt(argc,argv,"fivR:t:pS:N:I:"))!=-1) {
         switch (opt) {
             case 'f':
 				lagspace--;
@@ -75,6 +96,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'v':
                 verbose++;
+                break;
+            case 'p':
+                previous++;
                 break;
             case 'R':
                 ref_prof = optarg;
@@ -90,10 +114,17 @@ int main(int argc, char *argv[]) {
             case 'N':
                 nsub_proc = atoi(optarg);
                 break;
+            case 'I':
+                nchan_ignore = atoi(optarg);
+                break;
         }
     }
 
     if (optind==argc || opcheck!=1) { usage(); exit(1); }
+    if (previous && !do_optimisation) {
+        printf("Cannot use -p (previous) option on initialisation\n");
+        exit(1);
+    }
 	
 	int ic, ih, j, is, rv, nspec=1;
 	
@@ -119,11 +150,21 @@ int main(int argc, char *argv[]) {
 			   w.nphase, w.npol, w.nchan, nspec);
        printf("Processing %d total spectra, starting at subint %d\n",
                nsub_max - isub + 1, isub);
+       printf("Ignoring %d channels at each band edge\n", nchan_ignore);
 	   fflush(stdout);
+    }
+
+    if (nchan_ignore*2 >= w.nchan) {
+        fprintf(stderr, "nchan_ingore=%d is too large (nchan=%d)\n",
+                nchan_ignore, w.nchan);
+        exit(1);
     }
     
     int orig_npol = w.npol;
     w.npol = 1;
+
+    int orig_nchan = w.nchan;
+    w.nchan = w.nchan - 2*nchan_ignore;
 
     /* Initialise FFTs												*/
     fftwf_init_threads();
@@ -142,7 +183,7 @@ int main(int argc, char *argv[]) {
 
 	
     /* Allocate some stuff											*/
-    struct periodic_spectrum raw;
+    struct periodic_spectrum raw, rawraw;
     struct cyclic_spectrum cs;
     struct filter_freq hf, hf_prev;
 	struct filter_time ht;
@@ -153,10 +194,15 @@ int main(int argc, char *argv[]) {
     raw.nchan = cs.nchan = hf.nchan = hf_prev.nchan = w.nchan;
     cs.nharm = ph.nharm = ph_ref.nharm = w.nharm;
 	ht.nlag = w.nlag;
-    raw.npol = orig_npol;
+    raw.npol = 1;
     cs.npol = 1;
 
+    rawraw.nphase = raw.nphase;
+    rawraw.nchan = orig_nchan;
+    rawraw.npol = orig_npol;
+
     cyclic_alloc_ps(&raw);
+    cyclic_alloc_ps(&rawraw);
     cyclic_alloc_cs(&cs);
     filter_alloc_freq(&hf);
     filter_alloc_freq(&hf_prev);
@@ -167,20 +213,43 @@ int main(int argc, char *argv[]) {
     profile_alloc_harm(&ph);
     profile_alloc_harm(&ph_ref);
 
+    /* Generate output filename for filters from data filename      */
+	char *inputptr = argv[optind];
+	char dotchar = '.';
+	char *dotpos = strrchr(inputptr,dotchar);
+	size_t fnamelength = dotpos - inputptr + 1 ;
+	char outputptr[256];
+	strcpy(outputptr,inputptr);
+		
 	/* Initialise arrays for dynamic spectrum and optimised filters	*/
-	float dynamic_spectrum[nspec][w.nchan];
-	fftwf_complex optimised_filters[nspec][w.nchan];
-	for (is=0; is<nspec; is++) {
-		for (ic=0; ic<w.nchan;ic++) {
-			dynamic_spectrum[is][ic]  = 0.;
-			optimised_filters[is][ic] = 0. + I * 0.;
-		}
-	}
-	
+    //float **dynamic_spectrum = 
+    //    (float **)malloc(sizeof(float*) * nspec);
+	//fftwf_complex **optimised_filters =
+    //    (fftwf_complex **)malloc(sizeof(fftwf_complex*)*nspec);
+	//for (is=0; is<nspec; is++) {
+    //    dynamic_spectrum[is] = (float *)malloc(sizeof(float)*w.nchan);
+    //    optimised_filters[is] = 
+    //        (fftwf_complex *)malloc(sizeof(fftwf_complex)*w.nchan);
+    //}
+    float **dynamic_spectrum = (float **)init_array(
+            sizeof(float), nspec, w.nchan);
+	fftwf_complex **optimised_filters = (fftwf_complex **)init_array(
+            sizeof(fftwf_complex), nspec, w.nchan);
+    if (previous) {
+        /* Read in the optimised filters from a previous iteration  */
+        outputptr[fnamelength] = '\0';
+        strcat(outputptr,"filters.txt");
+        rv = read_filters(outputptr, nspec, w.nchan, optimised_filters);
+        if (rv<0) {
+            fprintf(stderr, "Error reading previous solution\n");
+            exit(1);
+        }
+    }
+
 	/* Initialise arrays to record optimisation stats				*/
-	float minima[nspec];
-	int outcome[nspec];
-	int	callno[nspec];
+	float *minima = (float *)malloc(sizeof(float) * nspec);
+	int *outcome = (int *)malloc(sizeof(int) * nspec);
+	int	*callno = (int *)malloc(sizeof(int) * nspec);
 	for (is=0; is<nspec; is++) {
 		minima[is]  = 0.0;
 		outcome[is] = 0;
@@ -191,8 +260,15 @@ int main(int argc, char *argv[]) {
 	for (j=0; j<pp_int.nphase; j++) { pp_int.data[j] = 0.0; }
 		
 	/* Initialise the "previous" filter coefficients to unity		*/
-	for (ic=0; ic<hf_prev.nchan; ic++) {
-		hf_prev.data[ic] = 1.0 + I * 0.0;
+    if (previous) {
+        for (ic=0; ic<hf_prev.nchan; ic++) {
+            hf_prev.data[ic] = optimised_filters[0][ic];
+        }
+    }
+    else {
+        for (ic=0; ic<hf_prev.nchan; ic++) {
+        hf_prev.data[ic] = 1.0 + I * 0.0;
+        }
 	}
 	
 	if (do_optimisation) {
@@ -216,13 +292,16 @@ int main(int argc, char *argv[]) {
 		}
 		
 		/* Load data												*/
-		raw.npol = orig_npol;
-		cyclic_load_ps(&cf, &raw, isub);
+		rawraw.npol = orig_npol;
+		cyclic_load_ps(&cf, &rawraw, isub);
 		cyclic_file_error_check_fatal(&cf);
 				
 		/* Add polarisations without calibration					*/
-		cyclic_pscrunch_ps(&raw, 1.0, 1.0);
+		cyclic_pscrunch_ps(&rawraw, 1.0, 1.0);
 		/* Only one polarisation from this point in loop			*/
+
+        /* Trim requested number of edge channels                   */
+        cyclic_remove_edge_chans(&rawraw, &raw, nchan_ignore);
 		
 		/* Convert input data to cyclic spectrum					*/
 		cyclic_ps2cs(&raw, &cs, &w);
@@ -250,6 +329,14 @@ int main(int argc, char *argv[]) {
 				hf.data[ic] = 1.0 + I * 0.0;
 			}
 		}
+        else if (previous) {
+        /* We already have a set of filter solutions for these data */
+        /* so use those as the starting point for the optimisation  */
+            printf("Starting from previous filter solution\n");
+            for (ic=0; ic<hf.nchan; ic++) {
+                hf.data[ic] = optimised_filters[isub-1][ic];
+            }
+        }
 		else if (!noptimised) {
 		/* Otherwise if this is the first sample then we estimate	*/
 		/* the phase gradient in H(freq) and set h(lag)	to be a		*/
@@ -386,13 +473,13 @@ int main(int argc, char *argv[]) {
 		/* Rotate the phases of the current filter so that they		*/
 		/* match the previous time-step as closely as possible		*/
 		/* And normalise the r.m.s. amplitude to unity				*/
-		match_two_filters(&hf_prev, &hf);
+		//match_two_filters(&hf_prev, &hf);
 		
 		/* Put current optimised filter(freq) into output array		*/
 		for (ic=0; ic<hf.nchan; ic++) {
 			optimised_filters[isub-1][ic]=hf.data[ic];
 		}
-		
+
 		/* Get optimised profile, given filter,	for this sub-int	*/
 		int iprof = 0;
 		iprof = optimise_profile(&ph, &cs, &hf, &w);
@@ -400,11 +487,22 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "Error in optimise_profile.\n");
 			exit(1);
 		}
-		
+
         /* Convert profile(harmonic) to profile(phase)				*/
         ph.data[0] = 0.0 + I * 0.0;
         profile_harm2phase(&ph, &pp, &w);
-				
+		
+        // Combined output of filter/profiles here
+        outputptr[fnamelength] = '\0';
+        strcat(outputptr, "filters.fits");
+        if (!noptimised) {
+            // Init output files
+            init_filter_file(outputptr, nspec, w.nchan, w.nphase, 
+                    cs.imjd, cs.fmjd);
+        }
+        // Output stuff
+        append_filter(outputptr, isub, cs.imjd, cs.fmjd, &hf);
+        append_profile(outputptr, isub, &pp);
 		
 		if (outcome[isub-1]<0 && verbose) 
             printf("NLOPT failed (code=%d)\n",outcome[isub-1]);
@@ -424,13 +522,6 @@ int main(int argc, char *argv[]) {
 
 	}
 
-	char *inputptr = argv[optind];
-	char dotchar = '.';
-	char *dotpos = strrchr(inputptr,dotchar);
-	size_t fnamelength = dotpos - inputptr + 1 ;
-	char *outputptr = inputptr;	
-	strcpy(outputptr,inputptr);
-		
 	/* Output intrinsic profile (= scattered profile if opt = -i)	*/
 	outputptr[fnamelength] = '\0';
 	strcat(outputptr,"profile.txt");
@@ -490,6 +581,8 @@ int main(int argc, char *argv[]) {
     profile_free_harm(&ph_ref);
     profile_free_phase(&pp_int);
 	cyclic_free_ffts(&w);
+    free_array((void**)dynamic_spectrum);
+    free_array((void**)optimised_filters);
 	
     exit(0);
 }
