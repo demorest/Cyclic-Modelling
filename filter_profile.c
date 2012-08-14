@@ -33,6 +33,7 @@
 
 #include "cyclic_utils.h"
 #include "cyclic_fileio.h"
+#include "filter_fileio.h"
 #include "model_cyclic.h"
 #include "merit_functions.h"
 
@@ -484,6 +485,8 @@ int main(int argc, char *argv[]) {
 		for (ic=0; ic<hf.nchan; ic++) {
 			optimised_filters[isub-1][ic]=hf.data[ic];
 		}
+
+        // TODO output each filter, and dynamic spectrum here
 		
 		/* Get optimised profile, given filter,	for this sub-int	*/
 		int iprof = 0;
@@ -492,6 +495,8 @@ int main(int argc, char *argv[]) {
 			fprintf(stderr, "Error in optimise_profile.\n");
 			exit(1);
 		}
+
+        // TODO output profiles here?
 		
         /* Convert profile(harmonic) to profile(phase)				*/
         ph.data[0] = 0.0 + I * 0.0;
