@@ -967,12 +967,12 @@ int profile_harm_renorm(struct profile_harm *ph) {
 	/* Divides ph(iharm) by nharm.									*/
 	/* Used by profile_phase2harm so that it is the inverse			*/
 	/* operation of profile_harm2phase								*/
-	/* Changed 2012.11.05 by GJ to divide by 2*nharm - 1 instead of nharm to match correct fftw behavior
+	/* Changed 2012.11.05 by GJ to divide by 2*(nharm - 1) == 2*nphase instead of nharm to match correct fftw behavior
 	   and to make phase2harm the inverse of harm2phase as originally intended*/
 	
 	int ih;
 	for (ih=0; ih<ph->nharm; ih++) {
-		ph->data[ih] /= (float)(ph->nharm*2 - 1);
+		ph->data[ih] /= (float)(ph->nharm - 1)*2;
 	}
 	
 	return(0);
@@ -1004,14 +1004,14 @@ int cyclic_ps2cs_renorm(CS *cs) {
 	/* Routine added by MAW 23/11/2011								*/
 	/* Divides cs by nharm. Used by cyclic_ps2cs so that it is the	*/
 	/* inverse operation of cyclic_cs2ps (not yet implemented!)		*/
-	/* Changed 2012.11.05 by GJ to divide by 2*nharm - 1 instead of nharm to match correct fftw behavior */
+	/* Changed 2012.11.05 by GJ to divide by 2*(nharm - 1) == 2*nphase instead of nharm to match correct fftw behavior */
 	
 	int ih, ip, ic;
 	for (ih=0; ih<cs->nharm; ih++) {
 		for (ip=0; ip<cs->npol; ip++) {
 			for (ic=0; ic<cs->nchan; ic++) {
 				fftwf_complex *d1 = get_cs(cs, ih, ip, ic);
-				*d1 /= (float)(cs->nharm*2 - 1);
+				*d1 /= (float)(cs->nharm - 1)*2;
 				/* *d1 /= 1.;										*/
 			}
 		}
