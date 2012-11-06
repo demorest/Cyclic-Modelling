@@ -25,3 +25,7 @@ install: all
 
 filter_profile: filter_profile.o merit_functions.o model_cyclic.o \
 	filter_fileio.o cyclic_utils.o $(FILEIO_OBJ)
+
+tests: test_merit
+test_merit: test_merit.o merit_functions.o model_cyclic.o \
+	filter_fileio.o cyclic_utils.o $(FILEIO_OBJ)
